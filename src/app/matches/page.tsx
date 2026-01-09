@@ -112,6 +112,29 @@ function formatDateTime(dateStr: string, time?: string | null) {
   return formattedDate;
 }
 
+function getTimeRemaining(dateStr: string): string | null {
+  const dateOnly = dateStr.includes("T") ? dateStr.split("T")[0] : dateStr;
+  const [y, m, d] = dateOnly.split("-").map((x) => Number(x));
+
+  const matchDate = new Date(y, m - 1, d);
+  const now = new Date();
+  now.setHours(0, 0, 0, 0);
+
+  const daysRemaining = Math.floor(
+    (matchDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
+  );
+
+  if (daysRemaining < 0) {
+    return null; // Para partidos jugados, no mostrar nada
+  } else if (daysRemaining === 0) {
+    return "Hoy";
+  } else if (daysRemaining === 1) {
+    return "Mañana";
+  } else {
+    return `En ${daysRemaining} días`;
+  }
+}
+
 function MatchCard({
   match,
   onDelete,
@@ -214,6 +237,16 @@ function MatchCard({
             </div>
           </div>
         </div>
+
+        {/* Time Remaining Badge */}
+        {getTimeRemaining(match.date) && (
+          <div className="flex items-center justify-center">
+            <Badge className="rounded-full bg-amber-500/15 text-amber-200 ring-1 ring-amber-500/25 text-xs">
+              <Clock className="mr-1 h-3 w-3" />
+              {getTimeRemaining(match.date)}
+            </Badge>
+          </div>
+        )}
 
         {/* Details */}
         <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-300">

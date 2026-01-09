@@ -1,11 +1,21 @@
 import Link from "next/link";
-import { CalendarDays, LayoutGrid, LineChart, Settings } from "lucide-react";
+import {
+  CalendarDays,
+  LayoutGrid,
+  LineChart,
+  Settings,
+  Shield,
+} from "lucide-react";
 
 const items = [
   { href: "/dashboard", label: "Dashboard", icon: LayoutGrid },
   { href: "/matches", label: "Matches", icon: CalendarDays },
   { href: "/stats", label: "Stats", icon: LineChart },
   { href: "/settings", label: "Settings", icon: Settings },
+];
+
+const adminItems = [
+  { href: "/admin/login", label: "Admin Panel", icon: Shield },
 ];
 
 export function Sidebar() {
@@ -36,6 +46,28 @@ export function Sidebar() {
           );
         })}
       </nav>
+
+      {/* Admin Section */}
+      <div className="mt-4 border-t border-white/10 pt-4">
+        <div className="px-2 py-2 text-xs font-semibold uppercase text-zinc-500">
+          Admin
+        </div>
+        <nav className="space-y-1">
+          {adminItems.map((it) => {
+            const Icon = it.icon;
+            return (
+              <Link
+                key={it.href}
+                href={it.href}
+                className="flex items-center gap-2 rounded-xl px-3 py-2 text-sm text-zinc-300 hover:bg-white/10 hover:text-white"
+              >
+                <Icon className="h-4 w-4" />
+                {it.label}
+              </Link>
+            );
+          })}
+        </nav>
+      </div>
     </aside>
   );
 }

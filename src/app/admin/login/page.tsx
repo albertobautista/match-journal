@@ -82,15 +82,6 @@ export default function AdminLoginPage() {
               {loading ? "Verificando..." : "Acceder"}
             </Button>
           </form>
-
-          <div className="rounded-lg bg-white/5 border border-white/10 p-4 text-xs text-zinc-400">
-            <p className="font-semibold text-zinc-300 mb-2">Nota:</p>
-            <p>
-              El token debe coincidir con la variable de entorno{" "}
-              <code className="text-emerald-400">ADMIN_TOKEN</code> configurada
-              en el servidor.
-            </p>
-          </div>
         </div>
       </Card>
     </div>
