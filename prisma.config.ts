@@ -18,7 +18,6 @@ export default defineConfig({
   schema: "prisma/schema.prisma",
   migrations: {
     path: "prisma/migrations",
-    lockTimeout: 30000, // 30 seconds instead of 10
   },
   datasource: {
     url: databaseUrl,
