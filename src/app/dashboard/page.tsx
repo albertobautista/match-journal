@@ -36,14 +36,18 @@ type MoneyCurrency = "MXN" | "USD" | "EUR";
 
 function startOfTodayLocal() {
   const now = new Date();
+  // Use local timezone to match the user's perception of "today"
   return new Date(now.getFullYear(), now.getMonth(), now.getDate());
 }
 
 function parseISODate(date: string, time?: string) {
   // Extraer solo la parte YYYY-MM-DD si viene un ISO timestamp completo
   const dateOnly = date.includes("T") ? date.split("T")[0] : date;
+  const [y, m, d] = dateOnly.split("-").map((x) => Number(x));
   const safeTime = time && time.trim() ? time.trim() : "00:00";
-  return new Date(`${dateOnly}T${safeTime}:00`);
+  const [h, min] = safeTime.split(":").map((x) => Number(x));
+  // Use UTC to avoid timezone shift
+  return new Date(Date.UTC(y, m - 1, d, h, min, 0));
 }
 
 function formatDateShort(date: string) {
@@ -51,8 +55,22 @@ function formatDateShort(date: string) {
   const dateOnly = date.includes("T") ? date.split("T")[0] : date;
   const [y, m, d] = dateOnly.split("-").map((x) => Number(x));
   if (!y || !m || !d) return date;
-  const dt = new Date(y, m - 1, d);
-  return dt.toLocaleDateString("es-MX", { month: "short", day: "2-digit" });
+  // Format without timezone interpretation
+  const months = [
+    "ene",
+    "feb",
+    "mar",
+    "abr",
+    "may",
+    "jun",
+    "jul",
+    "ago",
+    "sep",
+    "oct",
+    "nov",
+    "dic",
+  ];
+  return `${d} ${months[m - 1]}`;
 }
 
 function formatDateLong(date: string) {
@@ -60,28 +78,63 @@ function formatDateLong(date: string) {
   const dateOnly = date.includes("T") ? date.split("T")[0] : date;
   const [y, m, d] = dateOnly.split("-").map((x) => Number(x));
   if (!y || !m || !d) return date;
-  const dt = new Date(y, m - 1, d);
-  return dt.toLocaleDateString("es-MX", {
-    year: "numeric",
-    month: "long",
-    day: "2-digit",
-  });
+  // Format without timezone interpretation
+  const monthNames = [
+    "enero",
+    "febrero",
+    "marzo",
+    "abril",
+    "mayo",
+    "junio",
+    "julio",
+    "agosto",
+    "septiembre",
+    "octubre",
+    "noviembre",
+    "diciembre",
+  ];
+  return `${d} de ${monthNames[m - 1]} de ${y}`;
 }
 
 function diffText(date: string, time?: string) {
-  const now = new Date();
-  const event = parseISODate(date, time);
-  const ms = event.getTime() - now.getTime();
-  if (ms <= 0) return "Ya pasó / hoy";
+  // Parse the date string (format: "2026-01-10" or "2026-01-10 00:00:00")
+  const dateOnly = date.split(/[T\s]/)[0];
+  const [y, m, d] = dateOnly.split("-").map((x) => Number(x));
 
-  const mins = Math.floor(ms / (60 * 1000));
-  const hours = Math.floor(ms / (60 * 60 * 1000));
-  const days = Math.floor(ms / (24 * 60 * 60 * 1000));
+  if (!y || !m || !d) {
+    return "—";
+  }
+
+  // Get today's date as YYYY-MM-DD string (using LOCAL timezone, not UTC)
+  const now = new Date();
+  const todayYear = now.getFullYear();
+  const todayMonth = String(now.getMonth() + 1).padStart(2, "0");
+  const todayDate = String(now.getDate()).padStart(2, "0");
+  const todayString = `${todayYear}-${todayMonth}-${todayDate}`;
+
+  const eventString = `${y}-${String(m).padStart(2, "0")}-${String(d).padStart(
+    2,
+    "0"
+  )}`;
+
+  console.log(`[diffText] Today: ${todayString}, Event: ${eventString}`);
+
+  // Simple string comparison for dates (YYYY-MM-DD lexicographically sorts by date)
+  if (eventString < todayString) return "Ya pasó";
+  if (eventString === todayString) return "Hoy";
+
+  // Calculate days difference (using local dates to match what user sees)
+  const todayDate_num = new Date(todayYear, now.getMonth(), now.getDate());
+  const eventDate_num = new Date(y, m - 1, d);
+  const days = Math.floor(
+    (eventDate_num.getTime() - todayDate_num.getTime()) / (24 * 60 * 60 * 1000)
+  );
+
+  console.log(`[diffText] Days: ${days}`);
 
   if (days >= 2) return `En ${days} días`;
   if (days === 1) return "Mañana";
-  if (hours >= 1) return `En ${hours} h`;
-  return `En ${Math.max(1, mins)} min`;
+  return `En ${days} días`;
 }
 
 function groupCount<T extends string>(arr: T[]) {
@@ -1317,10 +1370,10 @@ export default function DashboardPage() {
       </div>
 
       {/* Recent played */}
-      <Card className="rounded-2xl border-white/10 bg-white/5 p-4">
-        <div className="flex items-center justify-between">
+      <Card className="rounded-2xl border-white/10 bg-white/5 p-6">
+        <div className="flex items-center justify-between mb-6">
           <div>
-            <div className="text-sm font-semibold text-zinc-100">
+            <div className="text-lg font-bold text-zinc-100">
               Últimos jugados
             </div>
             <div className="mt-1 text-xs text-zinc-400">5 más recientes</div>
@@ -1335,12 +1388,10 @@ export default function DashboardPage() {
           </Button>
         </div>
 
-        <Separator className="my-3 bg-white/10" />
-
         {played.length === 0 ? (
           <div className="text-sm text-zinc-400">Aún no tienes jugados.</div>
         ) : (
-          <div className="grid gap-2">
+          <div className="space-y-3">
             {played
               .filter((m) => m.homeScore !== null && m.awayScore !== null)
               .slice(0, 5)
@@ -1351,36 +1402,85 @@ export default function DashboardPage() {
                 const away =
                   teams.find((t) => t.id === m.awayTeamId)?.name ??
                   m.awayTeamId;
+                const homeTeam = teams.find((t) => t.id === m.homeTeamId);
+                const awayTeam = teams.find((t) => t.id === m.awayTeamId);
 
                 return (
                   <Link
                     key={m.id}
                     href={`/matches/${m.id}`}
-                    className="group flex items-center justify-between gap-3 rounded-2xl border border-white/10 bg-black/20 px-3 py-2 transition hover:bg-white/10"
+                    className="group block"
                   >
-                    <div className="flex min-w-0 items-center gap-3">
-                      <div className="w-14 text-xs text-zinc-400">
-                        {formatDateShort(m.date)}
-                      </div>
-                      <div className="min-w-0">
-                        <div className="truncate text-sm font-medium text-zinc-200">
-                          {home} <span className="text-zinc-400">vs</span>{" "}
-                          {away}
+                    <div className="relative rounded-2xl border border-white/10 bg-gradient-to-r from-white/[0.08] to-white/[0.02] p-5 transition hover:border-white/20 hover:from-white/15 hover:shadow-lg hover:shadow-emerald-500/10">
+                      <div className="flex items-center justify-between gap-4">
+                        {/* Left: Home team info */}
+                        <div className="flex items-center gap-3 flex-1 min-w-0">
+                          <div className="grid h-14 w-14 place-items-center overflow-hidden rounded-lg bg-gradient-to-br from-white/10 to-white/5 ring-1 ring-white/20 flex-shrink-0">
+                            {homeTeam?.logoUrl ? (
+                              <Image
+                                src={homeTeam.logoUrl}
+                                alt={home}
+                                width={40}
+                                height={40}
+                                className="h-8 w-8 object-contain"
+                              />
+                            ) : (
+                              <span className="text-xl">⚽️</span>
+                            )}
+                          </div>
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-bold text-zinc-100">
+                              {home}
+                            </div>
+                          </div>
                         </div>
-                        <div className="truncate text-xs text-zinc-500">
-                          {getCompetitionLabel(m.competitionId)} •{" "}
-                          {typeof m.stadium === "string"
-                            ? m.stadium
-                            : m.stadium.name}
-                        </div>
-                      </div>
-                    </div>
 
-                    <div className="flex shrink-0 items-center gap-2">
-                      <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-200 ring-1 ring-emerald-500/20">
-                        {m.homeScore}-{m.awayScore}
-                      </span>
-                      <ArrowRight className="h-4 w-4 text-zinc-500 transition group-hover:text-zinc-300" />
+                        {/* Center: Score - Large and prominent */}
+                        <div className="flex flex-col items-center gap-2 flex-shrink-0">
+                          <div className="flex items-baseline gap-1">
+                            <span className="text-3xl font-black text-emerald-300">
+                              {m.homeScore}
+                            </span>
+                            <span className="text-xl font-light text-zinc-500">
+                              -
+                            </span>
+                            <span className="text-3xl font-black text-emerald-300">
+                              {m.awayScore}
+                            </span>
+                          </div>
+                          <div className="text-xs text-zinc-400 uppercase tracking-wider">
+                            {getCompetitionLabel(m.competitionId)}
+                          </div>
+                          <div className="text-xs text-zinc-500">
+                            {formatDateShort(m.date)}
+                          </div>
+                        </div>
+
+                        {/* Right: Away team info */}
+                        <div className="flex items-center gap-3 flex-1 min-w-0 justify-end">
+                          <div className="min-w-0 text-right">
+                            <div className="truncate text-sm font-bold text-zinc-100">
+                              {away}
+                            </div>
+                          </div>
+                          <div className="grid h-14 w-14 place-items-center overflow-hidden rounded-lg bg-gradient-to-br from-white/10 to-white/5 ring-1 ring-white/20 flex-shrink-0">
+                            {awayTeam?.logoUrl ? (
+                              <Image
+                                src={awayTeam.logoUrl}
+                                alt={away}
+                                width={40}
+                                height={40}
+                                className="h-8 w-8 object-contain"
+                              />
+                            ) : (
+                              <span className="text-xl">⚽️</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Hover accent */}
+                      <div className="absolute inset-0 rounded-2xl bg-gradient-to-r from-emerald-500/0 via-emerald-500/0 to-emerald-500/0 group-hover:from-emerald-500/5 group-hover:to-emerald-500/10 transition pointer-events-none" />
                     </div>
                   </Link>
                 );

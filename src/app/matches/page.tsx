@@ -63,20 +63,53 @@ type Match = {
 };
 
 function formatDate(dateStr: string) {
-  const date = new Date(dateStr);
-  return date.toLocaleDateString("es-MX", {
-    year: "numeric",
-    month: "short",
-    day: "2-digit",
-  });
+  // Extract only YYYY-MM-DD part if it's a full ISO timestamp
+  const dateOnly = dateStr.includes("T") ? dateStr.split("T")[0] : dateStr;
+  const [y, m, d] = dateOnly.split("-").map((x) => Number(x));
+  if (!y || !m || !d) return dateStr;
+  // Format without timezone interpretation
+  const months = [
+    "ene",
+    "feb",
+    "mar",
+    "abr",
+    "may",
+    "jun",
+    "jul",
+    "ago",
+    "sep",
+    "oct",
+    "nov",
+    "dic",
+  ];
+  return `${d} ${months[m - 1]} ${y}`;
 }
 
 function formatDateTime(dateStr: string, time?: string | null) {
-  const date = new Date(dateStr);
+  // Extract only YYYY-MM-DD part if it's a full ISO timestamp
+  const dateOnly = dateStr.includes("T") ? dateStr.split("T")[0] : dateStr;
+  const [y, m, d] = dateOnly.split("-").map((x) => Number(x));
+  if (!y || !m || !d) return dateStr;
+  // Format without timezone interpretation
+  const months = [
+    "ene",
+    "feb",
+    "mar",
+    "abr",
+    "may",
+    "jun",
+    "jul",
+    "ago",
+    "sep",
+    "oct",
+    "nov",
+    "dic",
+  ];
+  const formattedDate = `${d} ${months[m - 1]} ${y}`;
   if (time) {
-    return `${date.toLocaleDateString("es-MX", { day: "2-digit", month: "short", year: "numeric" })} ${time}`;
+    return `${formattedDate} ${time}`;
   }
-  return formatDate(dateStr);
+  return formattedDate;
 }
 
 function MatchCard({
@@ -110,73 +143,77 @@ function MatchCard({
       ) : null}
       <div className="absolute inset-0 bg-gradient-to-r from-black/80 via-black/60 to-black/40" />
 
-      <div className="relative z-10 space-y-3">
-        {/* Header: Teams and competition */}
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex items-center gap-2">
-            {/* Home team */}
-            <div className="flex items-center gap-2">
-              <div className="grid h-8 w-8 place-items-center overflow-hidden rounded-lg bg-white/5 ring-1 ring-white/10">
-                {match.homeTeam.logoUrl ? (
-                  <Image
-                    src={match.homeTeam.logoUrl}
-                    alt={match.homeTeam.name}
-                    width={20}
-                    height={20}
-                    className="h-5 w-5 object-contain"
-                  />
-                ) : (
-                  <span className="text-sm">⚽️</span>
-                )}
-              </div>
-              <div className="min-w-0">
-                <div className="truncate text-sm font-semibold text-zinc-100">
-                  {match.homeTeam.name}
-                </div>
-              </div>
-            </div>
-
-            {/* vs */}
-            <div className="text-xs text-zinc-400 px-1">vs</div>
-
-            {/* Away team */}
-            <div className="flex items-center gap-2">
-              <div className="min-w-0">
-                <div className="truncate text-sm font-semibold text-zinc-100">
-                  {match.awayTeam.name}
-                </div>
-              </div>
-              <div className="grid h-8 w-8 place-items-center overflow-hidden rounded-lg bg-white/5 ring-1 ring-white/10">
-                {match.awayTeam.logoUrl ? (
-                  <Image
-                    src={match.awayTeam.logoUrl}
-                    alt={match.awayTeam.name}
-                    width={20}
-                    height={20}
-                    className="h-5 w-5 object-contain"
-                  />
-                ) : (
-                  <span className="text-sm">⚽️</span>
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Competition badge */}
-          <Badge className="rounded-full bg-white/5 text-zinc-200 ring-1 ring-white/10 shrink-0">
+      <div className="relative z-10 space-y-4">
+        {/* Competition badge */}
+        <div>
+          <Badge className="rounded-full bg-white/10 text-zinc-100 ring-1 ring-white/20 text-xs">
             <Trophy className="mr-1 h-3 w-3" />
             {match.competition.name}
           </Badge>
         </div>
 
-        {/* Score */}
-        {hasScore ? (
-          <div className="flex items-center justify-center rounded-lg bg-white/5 ring-1 ring-white/10 px-3 py-2">
-            <div className="text-lg font-bold text-zinc-100">
-              {match.homeScore} - {match.awayScore}
+        {/* Main Match Section */}
+        <div className="space-y-4">
+          {/* Teams with large logos - horizontal layout */}
+          <div className="flex items-center justify-between gap-3">
+            {/* Home Team */}
+            <div className="flex-1 flex flex-col items-center gap-2">
+              <div className="grid h-16 w-16 place-items-center overflow-hidden rounded-xl bg-gradient-to-br from-white/10 to-white/5 ring-2 ring-white/20 shadow-lg">
+                {match.homeTeam.logoUrl ? (
+                  <Image
+                    src={match.homeTeam.logoUrl}
+                    alt={match.homeTeam.name}
+                    width={40}
+                    height={40}
+                    className="h-10 w-10 object-contain"
+                  />
+                ) : (
+                  <span className="text-2xl">⚽️</span>
+                )}
+              </div>
+              <div className="text-center">
+                <div className="text-sm font-bold text-zinc-100 line-clamp-2">
+                  {match.homeTeam.name}
+                </div>
+              </div>
+            </div>
+
+            {/* Score Section */}
+            <div className="flex flex-col items-center gap-2">
+              {hasScore ? (
+                <div className="flex items-center justify-center rounded-xl bg-gradient-to-br from-emerald-500/20 to-emerald-500/10 ring-2 ring-emerald-500/30 px-4 py-3 min-w-fit">
+                  <div className="text-xl font-black text-emerald-200">
+                    {match.homeScore} - {match.awayScore}
+                  </div>
+                </div>
+              ) : (
+                <div className="text-zinc-400 text-sm font-medium">vs</div>
+              )}
+            </div>
+
+            {/* Away Team */}
+            <div className="flex-1 flex flex-col items-center gap-2">
+              <div className="grid h-16 w-16 place-items-center overflow-hidden rounded-xl bg-gradient-to-br from-white/10 to-white/5 ring-2 ring-white/20 shadow-lg">
+                {match.awayTeam.logoUrl ? (
+                  <Image
+                    src={match.awayTeam.logoUrl}
+                    alt={match.awayTeam.name}
+                    width={40}
+                    height={40}
+                    className="h-10 w-10 object-contain"
+                  />
+                ) : (
+                  <span className="text-2xl">⚽️</span>
+                )}
+              </div>
+              <div className="text-center">
+                <div className="text-sm font-bold text-zinc-100 line-clamp-2">
+                  {match.awayTeam.name}
+                </div>
+              </div>
             </div>
           </div>
-        ) : null}
+        </div>
 
         {/* Details */}
         <div className="flex flex-wrap items-center gap-2 text-xs text-zinc-300">
@@ -313,7 +350,9 @@ export default function MatchesPage() {
           {upcoming.length > 0 ? (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
-                <h2 className="text-lg font-semibold text-zinc-100">Próximos</h2>
+                <h2 className="text-lg font-semibold text-zinc-100">
+                  Próximos
+                </h2>
                 <Badge className="bg-amber-500/15 text-amber-200 ring-1 ring-amber-500/25">
                   {upcoming.length}
                 </Badge>

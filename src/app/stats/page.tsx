@@ -30,19 +30,43 @@ type MoneyCurrency = "MXN" | "USD" | "EUR";
 
 function startOfTodayLocal() {
   const now = new Date();
-  return new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  // Use UTC to avoid timezone shift
+  return new Date(
+    Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())
+  );
 }
 
 function parseISODate(date: string, time?: string) {
+  // Extraer solo la parte YYYY-MM-DD si viene un ISO timestamp completo
+  const dateOnly = date.includes("T") ? date.split("T")[0] : date;
+  const [y, m, d] = dateOnly.split("-").map((x) => Number(x));
   const safeTime = time && time.trim() ? time.trim() : "00:00";
-  return new Date(`${date}T${safeTime}:00`);
+  const [h, min] = safeTime.split(":").map((x) => Number(x));
+  // Use UTC to avoid timezone shift
+  return new Date(Date.UTC(y, m - 1, d, h, min, 0));
 }
 
 function formatDateShort(date: string) {
-  const [y, m, d] = date.split("-").map((x) => Number(x));
+  // Extraer solo la parte YYYY-MM-DD si viene un ISO timestamp completo
+  const dateOnly = date.includes("T") ? date.split("T")[0] : date;
+  const [y, m, d] = dateOnly.split("-").map((x) => Number(x));
   if (!y || !m || !d) return date;
-  const dt = new Date(y, m - 1, d);
-  return dt.toLocaleDateString("es-ES", { month: "short", day: "numeric" });
+  // Format without timezone interpretation
+  const months = [
+    "ene",
+    "feb",
+    "mar",
+    "abr",
+    "may",
+    "jun",
+    "jul",
+    "ago",
+    "sep",
+    "oct",
+    "nov",
+    "dic",
+  ];
+  return `${d} ${months[m - 1]}`;
 }
 
 function uniq<T>(arr: T[]): T[] {
