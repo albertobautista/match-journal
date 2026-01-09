@@ -300,10 +300,14 @@ export default function MatchesPage() {
     }
   };
 
-  // Separate upcoming and played
+  // Separate upcoming and played, then sort
   const now = new Date();
-  const upcoming = matches.filter((m) => new Date(m.date) >= now);
-  const played = matches.filter((m) => new Date(m.date) < now);
+  const upcoming = matches
+    .filter((m) => new Date(m.date) >= now)
+    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()); // Próximos: fecha más próxima primero
+  const played = matches
+    .filter((m) => new Date(m.date) < now)
+    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()); // Jugados: más recientes primero
 
   return (
     <div className="space-y-4">

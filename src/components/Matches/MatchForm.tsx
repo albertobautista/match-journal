@@ -107,7 +107,11 @@ function TeamOption({ t }: { t: Team }) {
   );
 }
 
-export default function MatchForm() {
+export default function MatchForm({
+  initialMatch,
+}: {
+  initialMatch?: any;
+} = {}) {
   const router = useRouter();
 
   const [catalog, setCatalog] = React.useState<CatalogResponse | null>(null);
@@ -115,27 +119,58 @@ export default function MatchForm() {
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
-  const [form, setForm] = React.useState<FormState>({
-    date: todayYYYYMMDD(),
-    time: "",
+  // Función para convertir fecha al formato YYYY-MM-DD
+  function dateToYYYYMMDD(date: string | Date) {
+    const d = typeof date === "string" ? new Date(date) : date;
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
 
-    homeTeamId: "",
-    awayTeamId: "",
-    competitionId: "",
-    stadiumId: "",
+  const initialState: FormState = initialMatch
+    ? {
+        date: dateToYYYYMMDD(initialMatch.date),
+        time: initialMatch.time || "",
+        homeTeamId: initialMatch.homeTeamId,
+        awayTeamId: initialMatch.awayTeamId,
+        competitionId: initialMatch.competitionId,
+        stadiumId: initialMatch.stadiumId,
+        city: initialMatch.city || "",
+        notes: initialMatch.notes || "",
+        homeScore: initialMatch.homeScore ? String(initialMatch.homeScore) : "",
+        awayScore: initialMatch.awayScore ? String(initialMatch.awayScore) : "",
+        videoUrl: initialMatch.videoUrl || "",
+        imageUrls:
+          initialMatch.images?.map((img: any) => img.url).join("\n") || "",
+        costAmount: initialMatch.costAmount
+          ? String(initialMatch.costAmount)
+          : "",
+        costCurrency: initialMatch.costCurrency || "MXN",
+      }
+    : {
+        date: todayYYYYMMDD(),
+        time: "",
 
-    city: "",
-    notes: "",
+        homeTeamId: "",
+        awayTeamId: "",
+        competitionId: "",
+        stadiumId: "",
 
-    homeScore: "",
-    awayScore: "",
+        city: "",
+        notes: "",
 
-    videoUrl: "",
-    imageUrls: "",
+        homeScore: "",
+        awayScore: "",
 
-    costAmount: "",
-    costCurrency: "MXN",
-  });
+        videoUrl: "",
+        imageUrls: "",
+
+        costAmount: "",
+        costCurrency: "MXN",
+      };
+
+  const [form, setForm] = React.useState<FormState>(initialState);
 
   React.useEffect(() => {
     let alive = true;
@@ -255,26 +290,31 @@ export default function MatchForm() {
           : null,
       };
 
-      const res = await fetch("/api/matches", {
-        method: "POST",
+      // Si estamos editando, usar PUT, si no, POST
+      const method = initialMatch ? "PUT" : "POST";
+      const url = initialMatch
+        ? `/api/matches/${initialMatch.id}`
+        : "/api/matches";
+
+      const res = await fetch(url, {
+        method,
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
 
       if (!res.ok) {
         const msg =
-          (await res.json().catch(() => null))?.error ??
-          "Failed to create match";
+          (await res.json().catch(() => null))?.error ?? "Failed to save match";
         throw new Error(msg);
       }
 
-      const created = await res.json();
+      const result = await res.json();
 
-      if (!created.id) {
+      if (!result.id) {
         throw new Error("Invalid response from server");
       }
 
-      router.push(`/matches/${created.id}`);
+      router.push(`/matches/${result.id}`);
     } catch (e: any) {
       setError(e?.message ?? "Error saving match");
     } finally {
@@ -310,10 +350,12 @@ export default function MatchForm() {
         <div className="flex items-start justify-between gap-3">
           <div>
             <div className="text-lg font-semibold text-zinc-100">
-              Nuevo partido
+              {initialMatch ? "Editar partido" : "Nuevo partido"}
             </div>
             <div className="mt-1 text-sm text-zinc-400">
-              Captura los datos del match.
+              {initialMatch
+                ? "Actualiza los datos del match."
+                : "Captura los datos del match."}
             </div>
           </div>
 

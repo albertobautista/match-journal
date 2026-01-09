@@ -33,6 +33,67 @@ export async function GET(
   }
 }
 
+export async function PUT(
+  request: NextRequest,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  try {
+    const { id } = await params;
+    const body = await request.json();
+
+    const {
+      date,
+      time,
+      homeTeamId,
+      awayTeamId,
+      competitionId,
+      stadiumId,
+      city,
+      notes,
+      homeScore,
+      awayScore,
+      videoUrl,
+      costAmount,
+      costCurrency,
+    } = body;
+
+    // Actualizar match
+    const updatedMatch = await prisma.match.update({
+      where: { id },
+      data: {
+        date: new Date(date),
+        time: time || null,
+        homeTeamId,
+        awayTeamId,
+        competitionId,
+        stadiumId,
+        city: city || null,
+        notes: notes || null,
+        homeScore: homeScore ? parseInt(homeScore) : null,
+        awayScore: awayScore ? parseInt(awayScore) : null,
+        videoUrl: videoUrl || null,
+        costAmount: costAmount ? parseFloat(costAmount) : null,
+        costCurrency: costCurrency || null,
+      },
+      include: {
+        homeTeam: true,
+        awayTeam: true,
+        competition: true,
+        stadium: true,
+        images: true,
+      },
+    });
+
+    return NextResponse.json(updatedMatch);
+  } catch (error) {
+    console.error("Error updating match:", error);
+    return NextResponse.json(
+      { error: "Error updating match" },
+      { status: 500 }
+    );
+  }
+}
+
 export async function DELETE(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
