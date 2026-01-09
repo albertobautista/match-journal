@@ -7,6 +7,7 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "postinstall": "prisma generate",
     "build-prisma": "prisma generate && prisma migrate deploy && next build",
     "db:test": "node prisma/test.js",
     "db:studio": "prisma studio",
