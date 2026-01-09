@@ -3,12 +3,22 @@
 import "dotenv/config";
 import { defineConfig } from "prisma/config";
 
-const databaseUrl = process.env.DATABASE_URL || "file:./prisma/dev.db";
+// Load .env.local explicitly
+const path = require("path");
+require("dotenv").config({
+  path: path.resolve(process.cwd(), ".env.local"),
+});
+
+const databaseUrl =
+  process.env.DATABASE_URL_UNPOOLED ||
+  process.env.DATABASE_URL ||
+  "postgresql://user:password@localhost:5432/match_journal";
 
 export default defineConfig({
   schema: "prisma/schema.prisma",
   migrations: {
     path: "prisma/migrations",
+    lockTimeout: 30000, // 30 seconds instead of 10
   },
   datasource: {
     url: databaseUrl,

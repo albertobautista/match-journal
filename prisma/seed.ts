@@ -1,7 +1,18 @@
 // prisma/seed.ts
-import { PrismaClient } from "@prisma/client";
+import dotenv from "dotenv";
+import path from "path";
 
-const prisma = new PrismaClient({});
+// Load environment variables from .env.local
+dotenv.config({ path: path.resolve(process.cwd(), ".env.local") });
+
+import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+
+const prisma = new PrismaClient({
+  adapter: new PrismaPg({
+    connectionString: process.env.DATABASE_URL,
+  }),
+});
 
 async function main() {
   console.log("🌱 Seeding database...");
