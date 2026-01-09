@@ -28,7 +28,7 @@ import {
 
 import { getStoredMatches, type StoredMatch } from "@/lib/matches-storage";
 import { getCompetitionLabel } from "@/lib/competitions";
-import { getTeamName, getTeamLogoUrlById } from "@/lib/teams";
+import type { TeamOption } from "@/lib/teams";
 import { getStadiumImageSrc } from "@/lib/stadiums";
 import { getAppSettings, setFavoriteTeamId } from "@/lib/app-settings";
 
@@ -40,19 +40,25 @@ function startOfTodayLocal() {
 }
 
 function parseISODate(date: string, time?: string) {
+  // Extraer solo la parte YYYY-MM-DD si viene un ISO timestamp completo
+  const dateOnly = date.includes("T") ? date.split("T")[0] : date;
   const safeTime = time && time.trim() ? time.trim() : "00:00";
-  return new Date(`${date}T${safeTime}:00`);
+  return new Date(`${dateOnly}T${safeTime}:00`);
 }
 
 function formatDateShort(date: string) {
-  const [y, m, d] = date.split("-").map((x) => Number(x));
+  // Extraer solo la parte YYYY-MM-DD si viene un ISO timestamp completo
+  const dateOnly = date.includes("T") ? date.split("T")[0] : date;
+  const [y, m, d] = dateOnly.split("-").map((x) => Number(x));
   if (!y || !m || !d) return date;
   const dt = new Date(y, m - 1, d);
   return dt.toLocaleDateString("es-MX", { month: "short", day: "2-digit" });
 }
 
 function formatDateLong(date: string) {
-  const [y, m, d] = date.split("-").map((x) => Number(x));
+  // Extraer solo la parte YYYY-MM-DD si viene un ISO timestamp completo
+  const dateOnly = date.includes("T") ? date.split("T")[0] : date;
+  const [y, m, d] = dateOnly.split("-").map((x) => Number(x));
   if (!y || !m || !d) return date;
   const dt = new Date(y, m - 1, d);
   return dt.toLocaleDateString("es-MX", {
@@ -91,7 +97,9 @@ function topNFromMap<K>(map: Map<K, number>, n: number) {
 }
 
 function monthKey(date: string) {
-  return date.slice(0, 7); // YYYY-MM
+  // Extraer solo la parte YYYY-MM-DD si viene un ISO timestamp completo
+  const dateOnly = date.includes("T") ? date.split("T")[0] : date;
+  return dateOnly.slice(0, 7); // YYYY-MM
 }
 
 function monthLabel(key: string) {
@@ -100,9 +108,16 @@ function monthLabel(key: string) {
   return dt.toLocaleDateString("es-MX", { month: "short" });
 }
 
-function TeamAvatar({ teamId }: { teamId: string }) {
-  const url = getTeamLogoUrlById(teamId);
-  const name = getTeamName(teamId);
+function TeamAvatar({
+  teamId,
+  teams,
+}: {
+  teamId: string;
+  teams: TeamOption[];
+}) {
+  const team = teams.find((t) => t.id === teamId);
+  const url = team?.logoUrl ?? null;
+  const name = team?.name ?? teamId;
 
   return (
     <div className="grid h-10 w-10 place-items-center overflow-hidden rounded-2xl bg-white/5 ring-1 ring-white/10">
@@ -121,9 +136,11 @@ function TeamAvatar({ teamId }: { teamId: string }) {
   );
 }
 
-function NextMatchCard({ m }: { m: StoredMatch }) {
-  const homeName = getTeamName(m.homeTeamId);
-  const awayName = getTeamName(m.awayTeamId);
+function NextMatchCard({ m, teams }: { m: StoredMatch; teams: TeamOption[] }) {
+  const homeName =
+    teams.find((t) => t.id === m.homeTeamId)?.name ?? m.homeTeamId;
+  const awayName =
+    teams.find((t) => t.id === m.awayTeamId)?.name ?? m.awayTeamId;
   const bg = getStadiumImageSrc(m.stadium);
 
   return (
@@ -151,12 +168,12 @@ function NextMatchCard({ m }: { m: StoredMatch }) {
 
               <Badge className="rounded-full bg-white/5 text-zinc-200 ring-1 ring-white/10">
                 <MapPin className="mr-1 h-3.5 w-3.5" />
-                {m.stadium}
+                {typeof m.stadium === "string" ? m.stadium : m.stadium.name}
               </Badge>
             </div>
 
             <div className="flex items-center gap-3">
-              <TeamAvatar teamId={m.homeTeamId} />
+              <TeamAvatar teamId={m.homeTeamId} teams={teams} />
               <div className="min-w-0">
                 <div className="truncate text-xl font-semibold text-zinc-100">
                   {homeName} <span className="text-zinc-300/70">vs</span>{" "}
@@ -404,9 +421,11 @@ function Chip({ label }: { label: ResultSymbol }) {
 function FavoriteTeamCard({
   items,
   upcoming,
+  teams,
 }: {
   items: StoredMatch[];
   upcoming: StoredMatch[];
+  teams: TeamOption[];
 }) {
   const [favoriteTeamId, setFav] = React.useState<string | null>(null);
 
@@ -415,16 +434,14 @@ function FavoriteTeamCard({
     setFav(s.favoriteTeamId);
   }, []);
 
-  const teamOptions = React.useMemo(() => {
-    const set = new Set<string>();
-    for (const m of items) {
-      if (m.homeTeamId) set.add(m.homeTeamId);
-      if (m.awayTeamId) set.add(m.awayTeamId);
-    }
-    return Array.from(set).sort((a, b) =>
-      getTeamName(a).localeCompare(getTeamName(b))
-    );
-  }, [items]);
+  // Usar directamente el catálogo de teams en lugar de extraerlo de los matches
+  const teamOptions = teams
+    .map((t) => t.id)
+    .sort((a, b) => {
+      const nameA = teams.find((t) => t.id === a)?.name ?? "";
+      const nameB = teams.find((t) => t.id === b)?.name ?? "";
+      return nameA.localeCompare(nameB);
+    });
 
   const nowYear = String(new Date().getFullYear());
   const matchesThisYear = React.useMemo(
@@ -565,8 +582,12 @@ function FavoriteTeamCard({
     };
   }, [favoriteTeamId, teamMatchesThisYear]);
 
-  const logo = favoriteTeamId ? getTeamLogoUrlById(favoriteTeamId) : null;
-  const name = favoriteTeamId ? getTeamName(favoriteTeamId) : "—";
+  const logo = favoriteTeamId
+    ? teams.find((t) => t.id === favoriteTeamId)?.logoUrl ?? null
+    : null;
+  const name = favoriteTeamId
+    ? teams.find((t) => t.id === favoriteTeamId)?.name ?? "—"
+    : "—";
 
   return (
     <Card className="rounded-2xl border-white/10 bg-white/5 p-5">
@@ -622,15 +643,18 @@ function FavoriteTeamCard({
             disabled={teamOptions.length === 0}
           >
             {teamOptions.length === 0 ? (
-              <option value="">Agrega matches primero</option>
+              <option value="">No hay equipos disponibles</option>
             ) : (
               <>
                 <option value="">— Selecciona —</option>
-                {teamOptions.map((id) => (
-                  <option key={id} value={id}>
-                    {getTeamName(id)}
-                  </option>
-                ))}
+                {teamOptions.map((id) => {
+                  const team = teams.find((t) => t.id === id);
+                  return (
+                    <option key={id} value={id}>
+                      {team?.name ?? id}
+                    </option>
+                  );
+                })}
               </>
             )}
           </select>
@@ -730,9 +754,11 @@ function FavoriteTeamCard({
                   className="block rounded-2xl border border-white/10 bg-white/5 p-3 transition hover:bg-white/10"
                 >
                   <div className="truncate text-sm font-semibold text-zinc-100">
-                    {getTeamName(nextForTeam.homeTeamId)}{" "}
+                    {teams.find((t) => t.id === nextForTeam.homeTeamId)?.name ??
+                      nextForTeam.homeTeamId}{" "}
                     <span className="text-zinc-400">vs</span>{" "}
-                    {getTeamName(nextForTeam.awayTeamId)}
+                    {teams.find((t) => t.id === nextForTeam.awayTeamId)?.name ??
+                      nextForTeam.awayTeamId}
                   </div>
 
                   <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-zinc-400">
@@ -746,7 +772,9 @@ function FavoriteTeamCard({
                     </span>
                     <span className="inline-flex items-center gap-2">
                       <MapPin className="h-3.5 w-3.5" />
-                      {nextForTeam.stadium}
+                      {typeof nextForTeam.stadium === "string"
+                        ? nextForTeam.stadium
+                        : nextForTeam.stadium.name}
                     </span>
                   </div>
                 </Link>
@@ -777,9 +805,13 @@ function FavoriteTeamCard({
                   <div className="flex items-center justify-between gap-3">
                     <div className="min-w-0">
                       <div className="truncate text-sm font-semibold text-zinc-100">
-                        {getTeamName(goalInsights.best.homeTeamId)}{" "}
+                        {teams.find(
+                          (t) => t.id === goalInsights.best?.homeTeamId
+                        )?.name ?? goalInsights.best?.homeTeamId}{" "}
                         <span className="text-zinc-400">vs</span>{" "}
-                        {getTeamName(goalInsights.best.awayTeamId)}
+                        {teams.find(
+                          (t) => t.id === goalInsights.best?.awayTeamId
+                        )?.name ?? goalInsights.best?.awayTeamId}
                       </div>
                       <div className="mt-1 truncate text-xs text-zinc-400">
                         {formatDateLong(goalInsights.best.date)} •{" "}
@@ -858,9 +890,36 @@ function FavoriteTeamCard({
 
 export default function DashboardPage() {
   const [items, setItems] = React.useState<StoredMatch[]>([]);
+  const [teams, setTeams] = React.useState<TeamOption[]>([]);
 
   React.useEffect(() => {
-    setItems(getStoredMatches());
+    const load = async () => {
+      try {
+        const [matchesRes, teamsRes] = await Promise.all([
+          fetch("/api/matches", { cache: "no-store" }),
+          fetch("/api/teams", { cache: "no-store" }),
+        ]);
+
+        if (!matchesRes.ok || !teamsRes.ok)
+          throw new Error("Failed to load data");
+
+        const matchesData = await matchesRes.json();
+        const teamsData = await teamsRes.json();
+
+        // Convertir Match a StoredMatch para compatibilidad
+        const converted = matchesData.map((m: any) => ({
+          ...m,
+          stadium: m.stadium?.name ?? m.stadium,
+        }));
+        setItems(converted);
+        setTeams(teamsData);
+      } catch (e) {
+        console.error("Error loading data:", e);
+        setItems([]);
+        setTeams([]);
+      }
+    };
+    load();
   }, []);
 
   const today = startOfTodayLocal().getTime();
@@ -891,7 +950,11 @@ export default function DashboardPage() {
   }, [items, today]);
 
   const thisYearMatches = React.useMemo(
-    () => items.filter((m) => m.date?.startsWith(nowYear)),
+    () =>
+      items.filter((m) => {
+        const dateOnly = m.date?.includes("T") ? m.date?.split("T")[0] : m.date;
+        return dateOnly?.startsWith(nowYear);
+      }),
     [items, nowYear]
   );
 
@@ -909,6 +972,7 @@ export default function DashboardPage() {
 
   const nextMatch = upcoming[0] ?? null;
 
+  // Partidos con ambos marcadores (para cálculos de resultados)
   const matchesWithScore = React.useMemo(
     () => items.filter((m) => m.homeScore !== null && m.awayScore !== null),
     [items]
@@ -916,7 +980,11 @@ export default function DashboardPage() {
 
   const topStadiums = React.useMemo(() => {
     const map = groupCount(
-      matchesWithScore.map((m) => m.stadium).filter(Boolean)
+      matchesWithScore
+        .map((m) =>
+          typeof m.stadium === "string" ? m.stadium : m.stadium.name
+        )
+        .filter(Boolean)
     );
     return topNFromMap(map, 5);
   }, [matchesWithScore]);
@@ -975,11 +1043,11 @@ export default function DashboardPage() {
       </div>
 
       {/* ✅ Mi equipo (con: racha + por competición + promedios + best match) */}
-      <FavoriteTeamCard items={items} upcoming={upcoming} />
+      <FavoriteTeamCard items={items} upcoming={upcoming} teams={teams} />
 
       {/* Next match (general) */}
       {nextMatch ? (
-        <NextMatchCard m={nextMatch} />
+        <NextMatchCard m={nextMatch} teams={teams} />
       ) : (
         <Card className="rounded-2xl border-white/10 bg-white/5 p-6">
           <div className="text-lg font-semibold text-zinc-100">
@@ -1173,10 +1241,12 @@ export default function DashboardPage() {
                 >
                   <div className="flex min-w-0 items-center gap-3">
                     <div className="grid h-9 w-9 place-items-center overflow-hidden rounded-xl bg-white/5 ring-1 ring-white/10">
-                      {getTeamLogoUrlById(teamId) ? (
+                      {teams.find((t) => t.id === teamId)?.logoUrl ? (
                         <Image
-                          src={getTeamLogoUrlById(teamId)!}
-                          alt={getTeamName(teamId)}
+                          src={teams.find((t) => t.id === teamId)?.logoUrl!}
+                          alt={
+                            teams.find((t) => t.id === teamId)?.name ?? teamId
+                          }
                           width={22}
                           height={22}
                           className="h-5 w-5 object-contain"
@@ -1187,7 +1257,7 @@ export default function DashboardPage() {
                     </div>
                     <div className="min-w-0">
                       <div className="truncate text-sm font-medium text-zinc-200">
-                        {getTeamName(teamId)}
+                        {teams.find((t) => t.id === teamId)?.name ?? teamId}
                       </div>
                       <div className="truncate text-xs text-zinc-500">
                         {teamId}
@@ -1275,8 +1345,12 @@ export default function DashboardPage() {
               .filter((m) => m.homeScore !== null && m.awayScore !== null)
               .slice(0, 5)
               .map((m) => {
-                const home = getTeamName(m.homeTeamId);
-                const away = getTeamName(m.awayTeamId);
+                const home =
+                  teams.find((t) => t.id === m.homeTeamId)?.name ??
+                  m.homeTeamId;
+                const away =
+                  teams.find((t) => t.id === m.awayTeamId)?.name ??
+                  m.awayTeamId;
 
                 return (
                   <Link
@@ -1294,7 +1368,10 @@ export default function DashboardPage() {
                           {away}
                         </div>
                         <div className="truncate text-xs text-zinc-500">
-                          {getCompetitionLabel(m.competitionId)} • {m.stadium}
+                          {getCompetitionLabel(m.competitionId)} •{" "}
+                          {typeof m.stadium === "string"
+                            ? m.stadium
+                            : m.stadium.name}
                         </div>
                       </div>
                     </div>

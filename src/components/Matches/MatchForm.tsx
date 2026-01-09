@@ -1,769 +1,731 @@
 "use client";
-"use no memo";
 
 import * as React from "react";
-import { useRouter } from "next/navigation";
 import Image from "next/image";
-import { nanoid } from "nanoid";
-import { useFieldArray, useForm } from "react-hook-form";
+import { useRouter } from "next/navigation";
 
-import { addStoredMatch, type StoredMatch } from "@/lib/matches-storage";
-import { TEAMS, getTeamById, type TeamOption } from "@/lib/teams";
-
-import { STADIUMS_CATALOG } from "@/lib/stadiums";
-import { StadiumPicker } from "./StadiumPicker";
-import type { StadiumOption } from "./StadiumPicker";
-
-import { COMPETITIONS_CATALOG } from "@/lib/competitions";
-import { CompetitionPicker } from "./CompetitionPicker";
-import type { CompetitionOption } from "./CompetitionPicker";
-
-import { TeamPicker } from "./TeamPicker";
-
-import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Separator } from "@/components/ui/separator";
+import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
 
-import { Plus, Trash2, Upload, MapPin, Calendar, Clock } from "lucide-react";
+import {
+  CalendarDays,
+  Clock,
+  MapPin,
+  Trophy,
+  Save,
+  Image as ImageIcon,
+  Video,
+} from "lucide-react";
 
-type FormValues = {
+type Team = { id: string; name: string; logoUrl: string | null };
+type Competition = { id: string; name: string; country: string | null };
+type Stadium = {
+  id: string;
+  name: string;
+  city: string | null;
+  country: string | null;
+  imageUrl: string | null;
+};
+
+type CatalogResponse = {
+  teams: Team[];
+  competitions: Competition[];
+  stadiums: Stadium[];
+};
+
+type FormState = {
+  date: string; // YYYY-MM-DD
+  time: string;
+
   homeTeamId: string;
   awayTeamId: string;
   competitionId: string;
-  date: string;
-  time: string;
-  stadium: string;
+  stadiumId: string;
+
   city: string;
-  hasScore: boolean;
-  homeScore: number | null;
-  awayScore: number | null;
-  costAmount: number | null;
-  costCurrency: "MXN" | "USD" | "EUR";
-  images: { url: string }[];
-  videoUrl: string;
   notes: string;
+
+  homeScore: string;
+  awayScore: string;
+
+  videoUrl: string;
+  imageUrls: string; // textarea multiline
+
+  costAmount: string;
+  costCurrency: string;
 };
 
-const demoCities = [
-  ...Array.from(
-    new Set(STADIUMS_CATALOG.map((s) => s.city).filter(Boolean) as string[])
-  ),
-].sort((a, b) => a.localeCompare(b));
+function todayYYYYMMDD() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+}
 
-function DatalistInput({
-  id,
-  label,
-  placeholder,
-  listId,
-  options,
-  register,
-  error,
-  icon,
-}: {
-  id: keyof FormValues;
-  label: string;
-  placeholder?: string;
-  listId: string;
-  options: string[];
-  register: unknown;
-  error?: string;
-  icon?: React.ReactNode;
-}) {
+function toNullableInt(v: string) {
+  const t = v.trim();
+  if (t === "") return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? Math.trunc(n) : null;
+}
+
+function toNullableFloat(v: string) {
+  const t = v.trim();
+  if (t === "") return null;
+  const n = Number(t);
+  return Number.isFinite(n) ? n : null;
+}
+
+function splitUrls(multiline: string) {
+  return multiline
+    .split("\n")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
+
+function TeamOption({ t }: { t: Team }) {
   return (
-    <div className="space-y-2">
-      <Label htmlFor={String(id)} className="text-zinc-200">
-        <span className="inline-flex items-center gap-2">
-          {icon}
-          {label}
-        </span>
-      </Label>
-      <Input
-        id={String(id)}
-        placeholder={placeholder}
-        list={listId}
-        className="rounded-xl border-white/10 bg-white/5 text-zinc-100 placeholder:text-zinc-500 focus-visible:ring-emerald-500/40"
-        {...(register as any)(id)}
-      />
-      <datalist id={listId}>
-        {Array.from(new Set(options)).map((opt) => (
-          <option key={opt} value={opt} />
-        ))}
-      </datalist>
-      {error ? <p className="text-xs text-red-300">{error}</p> : null}
+    <div className="flex items-center gap-2">
+      <div className="grid h-6 w-6 place-items-center overflow-hidden rounded-lg bg-white/5 ring-1 ring-white/10">
+        {t.logoUrl ? (
+          <Image
+            src={t.logoUrl}
+            alt={t.name}
+            width={18}
+            height={18}
+            className="h-4 w-4 object-contain"
+          />
+        ) : (
+          <span className="text-xs">⚽️</span>
+        )}
+      </div>
+      <span>{t.name}</span>
     </div>
   );
 }
 
-export function MatchForm() {
+export default function MatchForm() {
   const router = useRouter();
 
-  const defaultStadium = (STADIUMS_CATALOG[0]?.name ??
-    "Estadio Azteca") as string;
-  const defaultCity =
-    STADIUMS_CATALOG.find((s) => s.name === defaultStadium)?.city ??
-    "Ciudad de México";
+  const [catalog, setCatalog] = React.useState<CatalogResponse | null>(null);
+  const [loadingCatalog, setLoadingCatalog] = React.useState(true);
+  const [saving, setSaving] = React.useState(false);
+  const [error, setError] = React.useState<string | null>(null);
 
-  const defaultCompetitionId = (COMPETITIONS_CATALOG[0]?.id ??
-    "liga_mx") as string;
+  const [form, setForm] = React.useState<FormState>({
+    date: todayYYYYMMDD(),
+    time: "",
 
-  const form = useForm<FormValues>({
-    defaultValues: {
-      homeTeamId: "america",
-      awayTeamId: "chivas",
+    homeTeamId: "",
+    awayTeamId: "",
+    competitionId: "",
+    stadiumId: "",
 
-      competitionId: defaultCompetitionId,
+    city: "",
+    notes: "",
 
-      date: new Date().toISOString().slice(0, 10),
-      time: "19:00",
+    homeScore: "",
+    awayScore: "",
 
-      stadium: defaultStadium,
-      city: defaultCity,
+    videoUrl: "",
+    imageUrls: "",
 
-      hasScore: false,
-      homeScore: null,
-      awayScore: null,
-
-      costAmount: null,
-      costCurrency: "MXN",
-
-      images: [{ url: "" }],
-      videoUrl: "",
-      notes: "",
-    },
-    mode: "onBlur",
+    costAmount: "",
+    costCurrency: "MXN",
   });
-  const {
-    register,
-    handleSubmit,
-    control,
-    formState: { errors, isSubmitting },
-    setValue,
-    watch,
-    clearErrors,
-  } = form;
-
-  const { fields, append, remove } = useFieldArray({ control, name: "images" });
-
-  const homeTeamId = watch("homeTeamId");
-  const awayTeamId = watch("awayTeamId");
-  const hasScore = watch("hasScore");
-  const liveStadium = watch("stadium");
-  const liveCompId = watch("competitionId");
-  const liveHomeScore = watch("homeScore");
-  const liveAwayScore = watch("awayScore");
-
-  const selectedHome = React.useMemo<TeamOption | null>(
-    () => getTeamById(homeTeamId),
-    [homeTeamId]
-  );
-  const selectedAway = React.useMemo<TeamOption | null>(
-    () => getTeamById(awayTeamId),
-    [awayTeamId]
-  );
-
-  const disabledForHome = selectedAway?.id ? [selectedAway.id] : [];
-  const disabledForAway = selectedHome?.id ? [selectedHome.id] : [];
-
-  const selectedStadium = React.useMemo<StadiumOption | null>(() => {
-    return (
-      (STADIUMS_CATALOG.find((s) => s.name === liveStadium) as StadiumOption) ??
-      null
-    );
-  }, [liveStadium]);
-
-  const selectedCompetition = React.useMemo<CompetitionOption | null>(() => {
-    return (
-      (COMPETITIONS_CATALOG.find(
-        (c) => c.id === liveCompId
-      ) as CompetitionOption) ?? null
-    );
-  }, [liveCompId]);
 
   React.useEffect(() => {
-    if (!hasScore) {
-      setValue("homeScore", null, { shouldValidate: true });
-      setValue("awayScore", null, { shouldValidate: true });
-      clearErrors(["homeScore", "awayScore"]);
-    }
-  }, [hasScore, setValue, clearErrors]);
+    let alive = true;
 
-  const onSubmit = handleSubmit((values) => {
-    // Validation
-    if (!values.homeTeamId?.trim()) {
-      alert("Selecciona equipo local");
-      return;
-    }
-    if (!values.awayTeamId?.trim()) {
-      alert("Selecciona equipo visitante");
-      return;
-    }
-    if (values.homeTeamId === values.awayTeamId) {
-      alert("El visitante no puede ser el mismo que el local");
-      return;
-    }
-    if (!values.competitionId?.trim()) {
-      alert("Selecciona competición");
-      return;
-    }
-    if (!values.stadium?.trim()) {
-      alert("Selecciona estadio");
-      return;
-    }
-    if (!values.city?.trim()) {
-      alert("Ingresa ciudad");
-      return;
-    }
-    if (!values.date) {
-      alert("Selecciona fecha");
-      return;
-    }
-    if (!values.time) {
-      alert("Selecciona hora");
-      return;
-    }
-    if (
-      values.hasScore &&
-      (values.homeScore === null || values.awayScore === null)
-    ) {
-      alert("Completa goles si activas marcador");
-      return;
+    async function load() {
+      try {
+        setLoadingCatalog(true);
+
+        // Cargar todos los catálogos en paralelo
+        const [teamsRes, competitionsRes, stadiumsRes] = await Promise.all([
+          fetch("/api/teams", { cache: "no-store" }),
+          fetch("/api/competitions", { cache: "no-store" }),
+          fetch("/api/stadiums", { cache: "no-store" }),
+        ]);
+
+        if (!teamsRes.ok || !competitionsRes.ok || !stadiumsRes.ok) {
+          throw new Error("Failed to load catalog");
+        }
+
+        const [teams, competitions, stadiums] = await Promise.all([
+          teamsRes.json(),
+          competitionsRes.json(),
+          stadiumsRes.json(),
+        ]);
+
+        if (!alive) return;
+
+        const data: CatalogResponse = { teams, competitions, stadiums };
+        setCatalog(data);
+
+        // defaults
+        const firstTeam = data.teams[0]?.id ?? "";
+        const secondTeam = data.teams[1]?.id ?? firstTeam ?? "";
+        const firstComp = data.competitions[0]?.id ?? "";
+        const firstStadium = data.stadiums[0]?.id ?? "";
+
+        setForm((prev) => ({
+          ...prev,
+          homeTeamId: prev.homeTeamId || firstTeam,
+          awayTeamId: prev.awayTeamId || secondTeam,
+          competitionId: prev.competitionId || firstComp,
+          stadiumId: prev.stadiumId || firstStadium,
+        }));
+      } catch (e: any) {
+        if (!alive) return;
+        setError(e?.message ?? "Error loading catalog");
+      } finally {
+        if (alive) setLoadingCatalog(false);
+      }
     }
 
-    const match: StoredMatch = {
-      id: nanoid(),
-      createdAt: new Date().toISOString(),
-
-      homeTeamId: values.homeTeamId,
-      awayTeamId: values.awayTeamId,
-      competitionId: values.competitionId,
-
-      date: values.date,
-      time: values.time,
-
-      stadium: values.stadium,
-      city: values.city,
-
-      homeScore: values.hasScore ? values.homeScore : null,
-      awayScore: values.hasScore ? values.awayScore : null,
-
-      costAmount: values.costAmount,
-      costCurrency: values.costCurrency,
-
-      images: (values.images as { url: string }[])
-        .map((img) => img.url)
-        .filter(Boolean),
-      videoUrl: values.videoUrl ? values.videoUrl : null,
-
-      notes: values.notes ? values.notes : null,
+    load();
+    return () => {
+      alive = false;
     };
+  }, []);
 
-    addStoredMatch(match);
-    router.push("/matches");
-  });
+  const teams = catalog?.teams ?? [];
+  const competitions = catalog?.competitions ?? [];
+  const stadiums = catalog?.stadiums ?? [];
 
-  const getErrorMessage = (error: unknown): string | undefined => {
-    if (!error) return undefined;
-    if (typeof error === "string") return error;
+  const homeTeam = teams.find((t) => t.id === form.homeTeamId) ?? null;
+  const awayTeam = teams.find((t) => t.id === form.awayTeamId) ?? null;
+  const comp = competitions.find((c) => c.id === form.competitionId) ?? null;
+  const stadium = stadiums.find((s) => s.id === form.stadiumId) ?? null;
+
+  const previewImages = React.useMemo(
+    () => splitUrls(form.imageUrls),
+    [form.imageUrls]
+  );
+
+  const sameTeams =
+    form.homeTeamId && form.awayTeamId && form.homeTeamId === form.awayTeamId;
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    setError(null);
+
     if (
-      error &&
-      typeof error === "object" &&
-      "message" in error &&
-      typeof (error as Record<string, unknown>).message === "string"
-    )
-      return (error as Record<string, unknown>).message as string;
-    return undefined;
-  };
+      !form.date ||
+      !form.homeTeamId ||
+      !form.awayTeamId ||
+      !form.competitionId ||
+      !form.stadiumId
+    ) {
+      setError("Completa los campos requeridos.");
+      return;
+    }
+    if (sameTeams) {
+      setError("Local y visita deben ser diferentes.");
+      return;
+    }
+
+    try {
+      setSaving(true);
+
+      const payload = {
+        date: form.date,
+        time: form.time?.trim() ? form.time.trim() : null,
+        city: form.city?.trim() ? form.city.trim() : null,
+        notes: form.notes?.trim() ? form.notes.trim() : null,
+
+        homeTeamId: form.homeTeamId,
+        awayTeamId: form.awayTeamId,
+        competitionId: form.competitionId,
+        stadiumId: form.stadiumId,
+
+        homeScore: toNullableInt(form.homeScore),
+        awayScore: toNullableInt(form.awayScore),
+
+        videoUrl: form.videoUrl?.trim() ? form.videoUrl.trim() : null,
+        imageUrls: previewImages.length ? previewImages : [],
+
+        costAmount: toNullableFloat(form.costAmount),
+        costCurrency: form.costCurrency?.trim()
+          ? form.costCurrency.trim()
+          : null,
+      };
+
+      const res = await fetch("/api/matches", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        const msg =
+          (await res.json().catch(() => null))?.error ??
+          "Failed to create match";
+        throw new Error(msg);
+      }
+
+      const created = await res.json();
+
+      if (!created.id) {
+        throw new Error("Invalid response from server");
+      }
+
+      router.push(`/matches/${created.id}`);
+    } catch (e: any) {
+      setError(e?.message ?? "Error saving match");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (loadingCatalog) {
+    return (
+      <Card className="rounded-2xl border-white/10 bg-white/5 p-6">
+        <div className="text-sm text-zinc-300">Cargando catálogo…</div>
+      </Card>
+    );
+  }
+
+  if (!catalog) {
+    return (
+      <Card className="rounded-2xl border-white/10 bg-white/5 p-6">
+        <div className="text-sm text-zinc-300">
+          No se pudo cargar el catálogo.
+        </div>
+        {error ? (
+          <div className="mt-2 text-sm text-rose-200">{error}</div>
+        ) : null}
+      </Card>
+    );
+  }
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div>
-          <div className="text-2xl font-semibold tracking-tight">
-            Añadir Nuevo Partido
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1fr_0.9fr]">
+      {/* FORM */}
+      <Card className="rounded-2xl border-white/10 bg-white/5 p-5">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <div className="text-lg font-semibold text-zinc-100">
+              Nuevo partido
+            </div>
+            <div className="mt-1 text-sm text-zinc-400">
+              Captura los datos del match.
+            </div>
           </div>
-          <div className="mt-1 text-sm text-zinc-400">
-            Todo se elige desde catálogos: equipos, competición y estadio.
-          </div>
+
+          <Badge className="rounded-full bg-white/5 text-zinc-200 ring-1 ring-white/10">
+            <Trophy className="mr-1 h-3.5 w-3.5" />
+            DB catalog
+          </Badge>
         </div>
 
-        <div className="flex items-center gap-2">
-          <Button
-            type="button"
-            variant="secondary"
-            className="rounded-xl bg-white/5 hover:bg-white/10"
-            onClick={() => router.back()}
-          >
-            Cancelar
-          </Button>
-          <Button
-            type="button"
-            className="rounded-xl bg-emerald-600 hover:bg-emerald-600/90"
-            onClick={onSubmit}
-            disabled={isSubmitting}
-          >
-            Guardar Partido
-          </Button>
-        </div>
-      </div>
+        <Separator className="my-4 bg-white/10" />
 
-      <Separator className="bg-white/10" />
+        {error ? (
+          <div className="mb-4 rounded-2xl border border-rose-500/20 bg-rose-500/10 p-3 text-sm text-rose-200">
+            {error}
+          </div>
+        ) : null}
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[1.3fr_0.7fr]">
-        {/* Left */}
-        <Card className="rounded-2xl border-white/10 bg-white/5 p-4 backdrop-blur">
-          <form className="space-y-6" onSubmit={onSubmit}>
-            <div className="flex flex-wrap items-center gap-2">
-              <Badge className="rounded-full bg-emerald-500/15 text-emerald-200 ring-1 ring-emerald-500/25">
-                {selectedCompetition?.name ?? "Competición"}
-              </Badge>
-              <Badge className="rounded-full bg-white/5 text-zinc-200 ring-1 ring-white/10">
-                {selectedHome?.name ?? "Local"} vs{" "}
-                {selectedAway?.name ?? "Visitante"}
-              </Badge>
-            </div>
-
-            {/* Teams */}
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-[1fr_auto_1fr] md:items-end">
-              <TeamPicker
-                label="Local"
-                placeholder="Selecciona local"
-                value={selectedHome}
-                options={TEAMS}
-                tone="home"
-                disabledTeamIds={disabledForHome}
-                error={getErrorMessage(errors.homeTeamId)}
-                onChange={(t) => {
-                  if (selectedAway?.id === t.id)
-                    setValue("awayTeamId", "", { shouldValidate: true });
-                  setValue("homeTeamId", t.id, { shouldValidate: true });
-                }}
-              />
-
-              <div className="hidden md:flex items-center justify-center pb-5">
-                <div className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs tracking-widest text-zinc-300">
-                  VS
-                </div>
-              </div>
-
-              <TeamPicker
-                label="Visitante"
-                placeholder="Selecciona visitante"
-                value={selectedAway}
-                options={TEAMS}
-                tone="away"
-                disabledTeamIds={disabledForAway}
-                error={getErrorMessage(errors.awayTeamId)}
-                onChange={(t) => {
-                  if (selectedHome?.id === t.id)
-                    setValue("homeTeamId", "", { shouldValidate: true });
-                  setValue("awayTeamId", t.id, { shouldValidate: true });
-                }}
-              />
-            </div>
-
-            {/* Competition + date/time */}
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
-              <CompetitionPicker
-                label="Competición"
-                placeholder="Selecciona competición"
-                options={COMPETITIONS_CATALOG as CompetitionOption[]}
-                value={selectedCompetition}
-                error={getErrorMessage(errors.competitionId)}
-                onChange={(c) =>
-                  setValue("competitionId", c.id, { shouldValidate: true })
-                }
-              />
-
-              <div className="space-y-2">
-                <Label htmlFor="date" className="text-zinc-200">
-                  <span className="inline-flex items-center gap-2">
-                    <Calendar className="h-4 w-4 text-zinc-300" />
-                    Fecha
-                  </span>
-                </Label>
-                <Input
-                  id="date"
+        <form onSubmit={onSubmit} className="space-y-4">
+          {/* Date / Time */}
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div>
+              <label className="text-xs text-zinc-400">Fecha *</label>
+              <div className="mt-1 flex items-center gap-2 rounded-xl border border-white/10 bg-black/30 px-3 py-2">
+                <CalendarDays className="h-4 w-4 text-zinc-400" />
+                <input
                   type="date"
-                  className="rounded-xl border-white/10 bg-white/5 text-zinc-100 focus-visible:ring-emerald-500/40"
-                  {...register("date")}
+                  className="w-full bg-transparent text-sm text-zinc-200 outline-none"
+                  value={form.date}
+                  onChange={(e) =>
+                    setForm((p) => ({ ...p, date: e.target.value }))
+                  }
                 />
-                {errors.date ? (
-                  <p className="text-xs text-red-300">
-                    {getErrorMessage(errors.date)}
-                  </p>
-                ) : null}
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="time" className="text-zinc-200">
-                  <span className="inline-flex items-center gap-2">
-                    <Clock className="h-4 w-4 text-zinc-300" />
-                    Hora
-                  </span>
-                </Label>
-                <Input
-                  id="time"
-                  type="time"
-                  className="rounded-xl border-white/10 bg-white/5 text-zinc-100 focus-visible:ring-emerald-500/40"
-                  {...register("time")}
-                />
-                {errors.time ? (
-                  <p className="text-xs text-red-300">
-                    {getErrorMessage(errors.time)}
-                  </p>
-                ) : null}
               </div>
             </div>
 
-            {/* Stadium + city */}
-            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              <div className="space-y-1">
-                <StadiumPicker
-                  label="Estadio"
-                  placeholder="Selecciona estadio"
-                  options={STADIUMS_CATALOG as StadiumOption[]}
-                  value={selectedStadium}
-                  error={getErrorMessage(errors.stadium)}
-                  onChange={(s) => {
-                    setValue("stadium", s.name, { shouldValidate: true });
-                    if (s.city)
-                      setValue("city", s.city, { shouldValidate: true });
-                  }}
+            <div>
+              <label className="text-xs text-zinc-400">Hora</label>
+              <div className="mt-1 flex items-center gap-2 rounded-xl border border-white/10 bg-black/30 px-3 py-2">
+                <Clock className="h-4 w-4 text-zinc-400" />
+                <input
+                  type="time"
+                  className="w-full bg-transparent text-sm text-zinc-200 outline-none"
+                  value={form.time}
+                  onChange={(e) =>
+                    setForm((p) => ({ ...p, time: e.target.value }))
+                  }
                 />
-                {errors.stadium ? (
-                  <p className="text-xs text-red-300">
-                    {getErrorMessage(errors.stadium)}
-                  </p>
-                ) : null}
               </div>
+            </div>
+          </div>
 
-              <DatalistInput
-                id="city"
-                label="Ciudad"
-                placeholder="Ej. Madrid"
-                listId="cities"
-                options={demoCities}
-                register={register}
-                error={getErrorMessage(errors.city)}
-                icon={<MapPin className="h-4 w-4 text-zinc-300" />}
+          {/* Teams */}
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div>
+              <label className="text-xs text-zinc-400">Local *</label>
+              <select
+                className={`mt-1 w-full rounded-xl border bg-black/30 px-3 py-2 text-sm text-zinc-200 outline-none ${
+                  sameTeams ? "border-rose-500/40" : "border-white/10"
+                }`}
+                value={form.homeTeamId}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, homeTeamId: e.target.value }))
+                }
+              >
+                {teams.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="text-xs text-zinc-400">Visita *</label>
+              <select
+                className={`mt-1 w-full rounded-xl border bg-black/30 px-3 py-2 text-sm text-zinc-200 outline-none ${
+                  sameTeams ? "border-rose-500/40" : "border-white/10"
+                }`}
+                value={form.awayTeamId}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, awayTeamId: e.target.value }))
+                }
+              >
+                {teams.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
+                ))}
+              </select>
+
+              {sameTeams ? (
+                <div className="mt-1 text-xs text-rose-200">
+                  Local y visita deben ser diferentes.
+                </div>
+              ) : null}
+            </div>
+          </div>
+
+          {/* Competition / Stadium */}
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div>
+              <label className="text-xs text-zinc-400">Competición *</label>
+              <select
+                className="mt-1 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-200 outline-none"
+                value={form.competitionId}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, competitionId: e.target.value }))
+                }
+              >
+                {competitions.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.name}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="text-xs text-zinc-400">Estadio *</label>
+              <select
+                className="mt-1 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-200 outline-none"
+                value={form.stadiumId}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, stadiumId: e.target.value }))
+                }
+              >
+                {stadiums.map((s) => (
+                  <option key={s.id} value={s.id}>
+                    {s.name}
+                    {s.city ? ` (${s.city})` : ""}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+
+          {/* City / Notes */}
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div>
+              <label className="text-xs text-zinc-400">Ciudad</label>
+              <input
+                className="mt-1 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-200 outline-none"
+                value={form.city}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, city: e.target.value }))
+                }
+                placeholder="Ej: Barcelona"
               />
             </div>
 
-            <Separator className="bg-white/10" />
+            <div>
+              <label className="text-xs text-zinc-400">Notas</label>
+              <input
+                className="mt-1 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-200 outline-none"
+                value={form.notes}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, notes: e.target.value }))
+                }
+                placeholder="Ej: gran ambiente, buen asiento…"
+              />
+            </div>
+          </div>
 
-            {/* Score toggle */}
-            <div className="space-y-3">
-              <div className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-                <div className="text-sm font-medium text-zinc-200">
-                  Marcador
-                </div>
+          {/* Score */}
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div>
+              <label className="text-xs text-zinc-400">Marcador (Local)</label>
+              <input
+                inputMode="numeric"
+                className="mt-1 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-200 outline-none"
+                value={form.homeScore}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, homeScore: e.target.value }))
+                }
+                placeholder="Ej: 2"
+              />
+            </div>
 
-                <div className="inline-flex rounded-xl border border-white/10 bg-white/5 p-1">
-                  <button
-                    type="button"
-                    className={[
-                      "px-3 py-1.5 text-xs rounded-lg transition",
-                      !hasScore
-                        ? "bg-emerald-600 text-white"
-                        : "text-zinc-300 hover:bg-white/10",
-                    ].join(" ")}
-                    onClick={() =>
-                      setValue("hasScore", false, { shouldValidate: true })
-                    }
-                  >
-                    Sin marcador
-                  </button>
-                  <button
-                    type="button"
-                    className={[
-                      "px-3 py-1.5 text-xs rounded-lg transition",
-                      hasScore
-                        ? "bg-emerald-600 text-white"
-                        : "text-zinc-300 hover:bg-white/10",
-                    ].join(" ")}
-                    onClick={() =>
-                      setValue("hasScore", true, { shouldValidate: true })
-                    }
-                  >
-                    Con marcador
-                  </button>
-                </div>
+            <div>
+              <label className="text-xs text-zinc-400">Marcador (Visita)</label>
+              <input
+                inputMode="numeric"
+                className="mt-1 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-200 outline-none"
+                value={form.awayScore}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, awayScore: e.target.value }))
+                }
+                placeholder="Ej: 1"
+              />
+            </div>
+          </div>
+
+          {/* Media */}
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div>
+              <label className="text-xs text-zinc-400">Video URL</label>
+              <div className="mt-1 flex items-center gap-2 rounded-xl border border-white/10 bg-black/30 px-3 py-2">
+                <Video className="h-4 w-4 text-zinc-400" />
+                <input
+                  className="w-full bg-transparent text-sm text-zinc-200 outline-none"
+                  value={form.videoUrl}
+                  onChange={(e) =>
+                    setForm((p) => ({ ...p, videoUrl: e.target.value }))
+                  }
+                  placeholder="https://..."
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="text-xs text-zinc-400">
+                Imágenes (1 URL por línea)
+              </label>
+              <div className="mt-1 flex items-start gap-2 rounded-xl border border-white/10 bg-black/30 px-3 py-2">
+                <ImageIcon className="mt-0.5 h-4 w-4 text-zinc-400" />
+                <textarea
+                  rows={3}
+                  className="w-full resize-none bg-transparent text-sm text-zinc-200 outline-none"
+                  value={form.imageUrls}
+                  onChange={(e) =>
+                    setForm((p) => ({ ...p, imageUrls: e.target.value }))
+                  }
+                  placeholder={"https://...\nhttps://..."}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Cost */}
+          <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+            <div>
+              <label className="text-xs text-zinc-400">Costo</label>
+              <input
+                inputMode="decimal"
+                className="mt-1 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-200 outline-none"
+                value={form.costAmount}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, costAmount: e.target.value }))
+                }
+                placeholder="Ej: 1500"
+              />
+            </div>
+
+            <div>
+              <label className="text-xs text-zinc-400">Moneda</label>
+              <select
+                className="mt-1 w-full rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-sm text-zinc-200 outline-none"
+                value={form.costCurrency}
+                onChange={(e) =>
+                  setForm((p) => ({ ...p, costCurrency: e.target.value }))
+                }
+              >
+                <option value="MXN">MXN</option>
+                <option value="USD">USD</option>
+                <option value="EUR">EUR</option>
+              </select>
+            </div>
+          </div>
+
+          <div className="pt-2">
+            <Button
+              type="submit"
+              disabled={saving}
+              className="w-full rounded-xl bg-emerald-600 hover:bg-emerald-600/90"
+            >
+              <Save className="mr-2 h-4 w-4" />
+              {saving ? "Guardando..." : "Guardar match"}
+            </Button>
+          </div>
+        </form>
+      </Card>
+
+      {/* PREVIEW */}
+      <Card className="relative overflow-hidden rounded-2xl border-white/10 bg-white/5 p-0">
+        {/* Stadium background */}
+        {stadium?.imageUrl ? (
+          <div
+            className="absolute inset-0 bg-cover bg-center opacity-80"
+            style={{ backgroundImage: `url(${stadium.imageUrl})` }}
+          />
+        ) : null}
+        <div className="absolute inset-0 bg-gradient-to-r from-black/85 via-black/65 to-black/40" />
+
+        <div className="relative z-10 p-5 md:p-6">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="text-lg font-semibold text-zinc-100">Preview</div>
+              <div className="mt-1 text-sm text-zinc-400">
+                Así se verá tu match.
+              </div>
+            </div>
+
+            {comp ? (
+              <Badge className="rounded-full bg-white/5 text-zinc-200 ring-1 ring-white/10">
+                <Trophy className="mr-1 h-3.5 w-3.5" />
+                {comp.name}
+              </Badge>
+            ) : null}
+          </div>
+
+          <Separator className="my-4 bg-white/10" />
+
+          <div className="flex items-center gap-3">
+            <div className="grid h-12 w-12 place-items-center overflow-hidden rounded-2xl bg-white/5 ring-1 ring-white/10">
+              {homeTeam?.logoUrl ? (
+                <Image
+                  src={homeTeam.logoUrl}
+                  alt={homeTeam.name}
+                  width={34}
+                  height={34}
+                  className="h-8 w-8 object-contain"
+                />
+              ) : (
+                <span className="text-lg">⚽️</span>
+              )}
+            </div>
+
+            <div className="min-w-0">
+              <div className="truncate text-xl font-semibold text-zinc-100">
+                {homeTeam?.name ?? "—"}{" "}
+                <span className="text-zinc-400">vs</span>{" "}
+                {awayTeam?.name ?? "—"}
               </div>
 
-              <div
-                className={[
-                  "rounded-2xl border p-3 transition",
-                  hasScore
-                    ? "border-emerald-500/20 bg-white/5"
-                    : "border-white/10 bg-white/5 opacity-60",
-                ].join(" ")}
-              >
-                <div className="mb-2 text-xs text-zinc-400">Final</div>
-
-                <div className="flex items-center gap-2">
-                  <Input
-                    inputMode="numeric"
-                    placeholder="Local"
-                    disabled={!hasScore}
-                    className="h-11 w-full rounded-xl border-white/10 bg-black/20 text-center text-lg text-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
-                    {...register("homeScore", {
-                      valueAsNumber: true,
-                    })}
-                  />
-                  <span className="text-zinc-400">—</span>
-                  <Input
-                    inputMode="numeric"
-                    placeholder="Visita"
-                    disabled={!hasScore}
-                    className="h-11 w-full rounded-xl border-white/10 bg-black/20 text-center text-lg text-zinc-100 disabled:cursor-not-allowed disabled:opacity-60"
-                    {...register("awayScore", {
-                      valueAsNumber: true,
-                    })}
-                  />
-                </div>
-
-                {errors.homeScore || errors.awayScore ? (
-                  <p className="mt-2 text-xs text-red-300">
-                    {getErrorMessage(errors.homeScore) ||
-                      getErrorMessage(errors.awayScore)}
-                  </p>
+              <div className="mt-1 flex flex-wrap items-center gap-3 text-sm text-zinc-200/80">
+                <span className="inline-flex items-center gap-2">
+                  <CalendarDays className="h-4 w-4" />
+                  {form.date || "—"}
+                </span>
+                <span className="inline-flex items-center gap-2">
+                  <Clock className="h-4 w-4" />
+                  {form.time || "--:--"}
+                </span>
+                {stadium ? (
+                  <span className="inline-flex items-center gap-2">
+                    <MapPin className="h-4 w-4" />
+                    {stadium.name}
+                  </span>
                 ) : null}
               </div>
             </div>
 
-            <Separator className="bg-white/10" />
-
-            {/* Cost */}
-            <div className="space-y-2">
-              <Label className="text-zinc-200">Costo (opcional)</Label>
-              <div className="grid grid-cols-[1fr_110px] gap-2">
-                <Input
-                  inputMode="decimal"
-                  placeholder="Ej. 650"
-                  className="rounded-xl border-white/10 bg-white/5 text-zinc-100 placeholder:text-zinc-500 focus-visible:ring-emerald-500/40"
-                  {...register("costAmount", {
-                    valueAsNumber: true,
-                  })}
+            <div className="ml-auto grid h-12 w-12 place-items-center overflow-hidden rounded-2xl bg-white/5 ring-1 ring-white/10">
+              {awayTeam?.logoUrl ? (
+                <Image
+                  src={awayTeam.logoUrl}
+                  alt={awayTeam.name}
+                  width={34}
+                  height={34}
+                  className="h-8 w-8 object-contain"
                 />
-                <select
-                  className="h-10 rounded-xl border border-white/10 bg-white/5 px-3 text-sm text-zinc-100 focus:outline-none focus:ring-2 focus:ring-emerald-500/40"
-                  {...register("costCurrency")}
-                >
-                  <option value="MXN">MXN</option>
-                  <option value="USD">USD</option>
-                  <option value="EUR">EUR</option>
-                </select>
-              </div>
+              ) : (
+                <span className="text-lg">⚽️</span>
+              )}
             </div>
+          </div>
 
-            <Separator className="bg-white/10" />
+          {/* Score preview */}
+          <div className="mt-4 flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3">
+            <div className="text-sm text-zinc-300">Marcador</div>
+            <div className="text-lg font-semibold text-zinc-100">
+              {(form.homeScore || "—") + " - " + (form.awayScore || "—")}
+            </div>
+          </div>
 
-            {/* Media */}
-            <div className="space-y-3">
-              <div className="text-sm font-medium text-zinc-200">
-                Multimedia
-              </div>
-
-              <div className="rounded-2xl border border-dashed border-white/15 bg-white/5 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="flex items-center gap-2 text-sm font-medium">
-                      <Upload className="h-4 w-4 text-zinc-300" />
-                      Links de imágenes
-                    </div>
-                    <div className="mt-1 text-xs text-zinc-400">
-                      Pega URLs. Luego lo cambiamos a uploads.
-                    </div>
-                  </div>
-
-                  <Button
-                    type="button"
-                    variant="secondary"
-                    className="rounded-xl bg-white/5 hover:bg-white/10"
-                    onClick={() => append({ url: "" })}
-                  >
-                    <Plus className="mr-2 h-4 w-4" />
-                    Agregar
-                  </Button>
+          {/* Media preview */}
+          <div className="mt-4 space-y-2">
+            {form.videoUrl.trim() ? (
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-3 text-sm text-zinc-200">
+                <div className="flex items-center gap-2 text-zinc-300">
+                  <Video className="h-4 w-4" />
+                  Video
                 </div>
+                <div className="mt-1 truncate text-zinc-200">
+                  {form.videoUrl}
+                </div>
+              </div>
+            ) : null}
 
-                <div className="mt-3 space-y-2">
-                  {fields.map((f, idx) => (
-                    <div key={f.id} className="grid grid-cols-[1fr_44px] gap-2">
-                      <Input
-                        placeholder="https://..."
-                        className="rounded-xl border-white/10 bg-black/20 text-zinc-100 placeholder:text-zinc-500 focus-visible:ring-emerald-500/40"
-                        {...register(`images.${idx}.url`)}
+            {previewImages.length ? (
+              <div className="rounded-2xl border border-white/10 bg-white/5 p-3">
+                <div className="flex items-center gap-2 text-sm text-zinc-300">
+                  <ImageIcon className="h-4 w-4" />
+                  Imágenes ({previewImages.length})
+                </div>
+                <div className="mt-2 grid grid-cols-3 gap-2">
+                  {previewImages.slice(0, 6).map((url, idx) => (
+                    <div
+                      key={`${url}-${idx}`}
+                      className="relative aspect-video overflow-hidden rounded-xl bg-black/30 ring-1 ring-white/10"
+                    >
+                      <Image
+                        src={url}
+                        alt={`Match image ${idx + 1}`}
+                        fill
+                        className="object-cover"
                       />
-                      <Button
-                        type="button"
-                        variant="secondary"
-                        className="rounded-xl bg-white/5 hover:bg-white/10"
-                        onClick={() => remove(idx)}
-                        disabled={fields.length === 1}
-                        title={
-                          fields.length === 1
-                            ? "Debe haber al menos 1 campo"
-                            : "Eliminar"
-                        }
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
                     </div>
                   ))}
                 </div>
               </div>
+            ) : null}
+          </div>
 
-              <div className="space-y-2">
-                <Label htmlFor="videoUrl" className="text-zinc-200">
-                  Añadir video (YouTube/TikTok/etc.)
-                </Label>
-                <Input
-                  id="videoUrl"
-                  placeholder="https://..."
-                  className="rounded-xl border-white/10 bg-white/5 text-zinc-100 placeholder:text-zinc-500 focus-visible:ring-emerald-500/40"
-                  {...register("videoUrl")}
-                />
-                {errors.videoUrl ? (
-                  <p className="text-xs text-red-300">
-                    {getErrorMessage(errors.videoUrl)}
-                  </p>
-                ) : null}
-              </div>
+          {/* Stadium image small label */}
+          {stadium?.imageUrl ? (
+            <div className="mt-4 text-xs text-zinc-300/70">
+              Fondo: {stadium.name}
             </div>
-
-            <Separator className="bg-white/10" />
-
-            {/* Notes */}
-            <div className="space-y-2">
-              <Label htmlFor="notes" className="text-zinc-200">
-                Notas (opcional)
-              </Label>
-              <Textarea
-                id="notes"
-                placeholder="Ej. ambiente increíble, gol al 89'..."
-                className="min-h-27.5 rounded-2xl border-white/10 bg-white/5 text-zinc-100 placeholder:text-zinc-500 focus-visible:ring-emerald-500/40"
-                {...register("notes")}
-              />
-            </div>
-
-            <div className="flex items-center justify-end gap-2 pt-2">
-              <Button
-                type="button"
-                variant="secondary"
-                className="rounded-xl bg-white/5 hover:bg-white/10"
-                onClick={() => router.back()}
-              >
-                Cancelar
-              </Button>
-              <Button
-                type="submit"
-                className="rounded-xl bg-emerald-600 hover:bg-emerald-600/90"
-                disabled={isSubmitting}
-              >
-                <Plus className="mr-2 h-4 w-4" />
-                Guardar Partido
-              </Button>
-            </div>
-          </form>
-        </Card>
-
-        {/* Preview */}
-        <div className="space-y-4">
-          <Card className="rounded-2xl border-white/10 bg-white/5 p-4 backdrop-blur">
-            <div className="text-sm font-semibold">Preview</div>
-            <p className="mt-2 text-sm text-zinc-400">
-              Imagen del estadio + equipos y marcador (si aplica).
-            </p>
-
-            <div className="mt-3 overflow-hidden rounded-2xl border border-white/10 bg-black/20">
-              <div className="relative h-28 w-full">
-                <Image
-                  src={selectedStadium?.imageSrc ?? "/stadiums/default.jpg"}
-                  alt={selectedStadium?.name ?? "Stadium"}
-                  className="h-full w-full object-cover"
-                  fill
-                  sizes="100%"
-                />
-                <div className="absolute inset-0 bg-linear-to-t from-black/80 via-black/30 to-transparent" />
-                <div className="absolute bottom-2 left-2 right-2 text-xs text-zinc-200">
-                  <div className="truncate font-medium">
-                    {selectedStadium?.name ?? liveStadium ?? "Estadio"}
-                  </div>
-                  <div className="truncate text-zinc-400">
-                    {selectedStadium?.city ?? "—"}
-                  </div>
-                </div>
-              </div>
-
-              <div className="p-3 text-xs text-zinc-300">
-                <div className="text-[11px] text-zinc-400">
-                  {selectedCompetition?.name ?? "Competición"}
-                </div>
-
-                <div className="mt-2 flex items-center justify-between gap-2">
-                  <div className="min-w-0">
-                    <div className="truncate text-sm font-semibold text-zinc-100">
-                      {selectedHome?.name ?? "Local"}
-                    </div>
-                    <div className="truncate text-[11px] text-zinc-400">
-                      Local
-                    </div>
-                  </div>
-
-                  {hasScore ? (
-                    <div className="shrink-0 rounded-xl border border-emerald-500/25 bg-emerald-500/10 px-3 py-1">
-                      <div className="flex items-center gap-2 text-sm font-semibold text-emerald-200">
-                        <span>
-                          {typeof liveHomeScore === "number" &&
-                          Number.isFinite(liveHomeScore)
-                            ? liveHomeScore
-                            : "—"}
-                        </span>
-                        <span className="text-emerald-200/70">-</span>
-                        <span>
-                          {typeof liveAwayScore === "number" &&
-                          Number.isFinite(liveAwayScore)
-                            ? liveAwayScore
-                            : "—"}
-                        </span>
-                      </div>
-                      <div className="mt-0.5 text-center text-[10px] text-emerald-200/70">
-                        Final
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="shrink-0 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-[11px] tracking-widest text-zinc-300">
-                      VS
-                    </div>
-                  )}
-
-                  <div className="min-w-0 text-right">
-                    <div className="truncate text-sm font-semibold text-zinc-100">
-                      {selectedAway?.name ?? "Visitante"}
-                    </div>
-                    <div className="truncate text-[11px] text-zinc-400">
-                      Visitante
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-3 rounded-2xl border border-white/10 bg-black/20 p-3 text-xs text-zinc-300">
-              <div className="font-medium text-zinc-200">Tip</div>
-              <div className="mt-1 text-zinc-400">
-                Si quieres 100% consistencia, hacemos la ciudad solo lectura
-                (derivada del estadio).
-              </div>
-            </div>
-          </Card>
+          ) : null}
         </div>
-      </div>
+      </Card>
     </div>
   );
 }

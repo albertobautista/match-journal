@@ -1,4 +1,3 @@
-// FILE: src/app/matches/[id]/page.tsx
 "use client";
 
 import * as React from "react";
@@ -22,22 +21,54 @@ import {
   ExternalLink,
   Image as ImageIcon,
   Video,
+  Loader2,
 } from "lucide-react";
 
-import {
-  getStoredMatchById,
-  deleteStoredMatch,
-  type StoredMatch,
-} from "@/lib/matches-storage";
-import { getTeamName, getTeamLogoUrlById } from "@/lib/teams";
-import { getCompetitionLabel } from "@/lib/competitions";
-import { getStadiumImageSrc } from "@/lib/stadiums";
+type Match = {
+  id: string;
+  date: string;
+  time: string | null;
+  city: string | null;
+  notes: string | null;
+  homeTeamId: string;
+  awayTeamId: string;
+  competitionId: string;
+  stadiumId: string;
+  homeScore: number | null;
+  awayScore: number | null;
+  videoUrl: string | null;
+  costAmount: number | null;
+  costCurrency: string | null;
+  createdAt: string;
+  updatedAt: string;
+  homeTeam: {
+    id: string;
+    name: string;
+    logoUrl: string | null;
+  };
+  awayTeam: {
+    id: string;
+    name: string;
+    logoUrl: string | null;
+  };
+  competition: {
+    id: string;
+    name: string;
+    country: string | null;
+  };
+  stadium: {
+    id: string;
+    name: string;
+    city: string | null;
+    country: string | null;
+    imageUrl: string | null;
+  };
+  images: Array<{ id: string; url: string }>;
+};
 
-function formatDate(date: string) {
-  const [y, m, d] = date.split("-").map((x) => Number(x));
-  if (!y || !m || !d) return date;
-  const dt = new Date(y, m - 1, d);
-  return dt.toLocaleDateString("es-MX", {
+function formatDate(dateStr: string) {
+  const date = new Date(dateStr);
+  return date.toLocaleDateString("es-MX", {
     year: "numeric",
     month: "long",
     day: "2-digit",
@@ -47,434 +78,330 @@ function formatDate(date: string) {
 function toYouTubeEmbed(url: string): string | null {
   try {
     const u = new URL(url);
-
-    // youtu.be/<id>
-    if (u.hostname.includes("youtu.be")) {
-      const id = u.pathname.replace("/", "").trim();
-      if (!id) return null;
-      return `https://www.youtube.com/embed/${id}`;
-    }
-
-    // youtube.com/watch?v=<id>
-    if (u.hostname.includes("youtube.com")) {
-      const v = u.searchParams.get("v");
-      if (v) return `https://www.youtube.com/embed/${v}`;
-
-      // youtube.com/shorts/<id>
-      const parts = u.pathname.split("/").filter(Boolean);
-      const shortsIdx = parts.indexOf("shorts");
-      if (shortsIdx !== -1 && parts[shortsIdx + 1]) {
-        return `https://www.youtube.com/embed/${parts[shortsIdx + 1]}`;
-      }
-
-      // youtube.com/embed/<id> (ya embebido)
-      const embedIdx = parts.indexOf("embed");
-      if (embedIdx !== -1 && parts[embedIdx + 1]) {
-        return `https://www.youtube.com/embed/${parts[embedIdx + 1]}`;
-      }
-    }
-
-    return null;
+    const id =
+      u.searchParams.get("v") ||
+      u.pathname.replace("/watch", "").replace("v/", "").split("?")[0];
+    return id
+      ? `https://www.youtube.com/embed/${id}`
+      : null;
   } catch {
     return null;
   }
 }
 
-function TeamPill({ teamId, side }: { teamId: string; side: "home" | "away" }) {
-  const name = getTeamName(teamId);
-  const logoUrl = getTeamLogoUrlById(teamId);
-
-  return (
-    <div
-      className={[
-        "flex items-center gap-3 rounded-2xl border px-3 py-2",
-        side === "home"
-          ? "border-emerald-500/20 bg-emerald-500/10"
-          : "border-white/10 bg-white/5",
-      ].join(" ")}
-    >
-      <div
-        className={[
-          "grid h-10 w-10 place-items-center overflow-hidden rounded-2xl ring-1",
-          side === "home"
-            ? "bg-emerald-500/10 ring-emerald-500/25"
-            : "bg-white/5 ring-white/10",
-        ].join(" ")}
-      >
-        {logoUrl ? (
-          <Image
-            src={logoUrl}
-            alt={name}
-            width={30}
-            height={30}
-            className="h-7 w-7 object-contain"
-          />
-        ) : (
-          <span className="text-sm">⚽️</span>
-        )}
-      </div>
-
-      <div className="min-w-0">
-        <div className="truncate text-sm font-semibold text-zinc-100">
-          {name}
-        </div>
-        <div className="truncate text-xs text-zinc-400">ID: {teamId}</div>
-      </div>
-    </div>
-  );
-}
-
 export default function MatchDetailPage() {
-  const params = useParams<{ id: string }>();
+  const params = useParams();
   const router = useRouter();
-  const id = params?.id;
+  const matchId = params.id as string;
 
-  const [match, setMatch] = React.useState<StoredMatch | null>(null);
+  const [match, setMatch] = React.useState<Match | null>(null);
+  const [loading, setLoading] = React.useState(true);
+  const [error, setError] = React.useState<string | null>(null);
+  const [deleting, setDeleting] = React.useState(false);
 
   React.useEffect(() => {
-    if (!id) return;
-    setMatch(getStoredMatchById(id));
-  }, [id]);
+    if (!matchId) return;
 
-  const stadiumBg = match?.stadium ? getStadiumImageSrc(match.stadium) : null;
-  const hasScore = match?.homeScore !== null && match?.awayScore !== null;
-  const hasImages = (match?.images?.length ?? 0) > 0;
-  const hasVideo = !!match?.videoUrl;
+    const load = async () => {
+      try {
+        setLoading(true);
+        setError(null);
+        const res = await fetch(`/api/matches/${matchId}`, {
+          cache: "no-store",
+        });
+        if (!res.ok) throw new Error("Match not found");
+        const data = await res.json();
+        setMatch(data);
+      } catch (e: any) {
+        setError(e?.message ?? "Error loading match");
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  const ytEmbed = match?.videoUrl ? toYouTubeEmbed(match.videoUrl) : null;
+    load();
+  }, [matchId]);
 
-  if (!match) {
+  const handleDelete = async () => {
+    if (!match || !confirm("¿Eliminar este partido permanentemente?")) return;
+
+    try {
+      setDeleting(true);
+      const res = await fetch(`/api/matches/${match.id}`, { method: "DELETE" });
+      if (!res.ok) throw new Error("Failed to delete match");
+      router.push("/matches");
+    } catch (e: any) {
+      alert(e?.message ?? "Error deleting match");
+      setDeleting(false);
+    }
+  };
+
+  if (loading) {
     return (
-      <div className="space-y-4">
-        <div className="flex items-center justify-between">
-          <Button
-            type="button"
-            variant="secondary"
-            className="rounded-xl bg-white/5 hover:bg-white/10"
-            onClick={() => router.push("/matches")}
-          >
-            <ArrowLeft className="mr-2 h-4 w-4" />
-            Volver
-          </Button>
-        </div>
-
-        <Card className="rounded-2xl border-white/10 bg-white/5 p-6">
-          <div className="text-lg font-semibold text-zinc-100">
-            No encontrado
-          </div>
-          <div className="mt-2 text-sm text-zinc-400">
-            No pude encontrar el match con id:{" "}
-            <span className="text-zinc-200">{id}</span>
-          </div>
-
-          <div className="mt-4">
-            <Button
-              asChild
-              className="rounded-xl bg-emerald-600 hover:bg-emerald-600/90"
-            >
-              <Link href="/matches">Ir a Matches</Link>
-            </Button>
-          </div>
-        </Card>
+      <div className="flex items-center justify-center gap-2 text-zinc-400">
+        <Loader2 className="h-5 w-5 animate-spin" />
+        Cargando…
       </div>
     );
   }
 
-  const homeName = getTeamName(match.homeTeamId);
-  const awayName = getTeamName(match.awayTeamId);
+  if (error || !match) {
+    return (
+      <Card className="rounded-2xl border-rose-500/20 bg-rose-500/10 p-6 text-center">
+        <div className="text-sm text-rose-200 mb-4">{error ?? "Match not found"}</div>
+        <Link href="/matches">
+          <Button variant="secondary" className="rounded-lg">
+            <ArrowLeft className="mr-2 h-4 w-4" />
+            Volver
+          </Button>
+        </Link>
+      </Card>
+    );
+  }
+
+  const hasScore =
+    match.homeScore !== null && match.awayScore !== null;
+  const youtubeId = match.videoUrl
+    ? toYouTubeEmbed(match.videoUrl)
+    : null;
 
   return (
     <div className="space-y-4">
-      {/* Top bar */}
-      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div className="flex items-center gap-2">
+      {/* Header */}
+      <div className="flex items-center justify-between">
+        <Link href="/matches">
           <Button
-            type="button"
             variant="secondary"
-            className="rounded-xl bg-white/5 hover:bg-white/10"
-            onClick={() => router.push("/matches")}
+            className="h-9 rounded-lg bg-white/5 hover:bg-white/10"
+            size="sm"
           >
             <ArrowLeft className="mr-2 h-4 w-4" />
-            Matches
+            Volver
           </Button>
+        </Link>
 
-          <Badge className="rounded-full bg-white/5 text-zinc-200 ring-1 ring-white/10">
-            ID: {match.id}
-          </Badge>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {/* Edit placeholder: lo hacemos después */}
+        <div className="flex gap-2">
+          <Link href={`/matches/${match.id}/edit`}>
+            <Button
+              variant="secondary"
+              className="h-9 rounded-lg bg-white/5 hover:bg-white/10"
+              size="sm"
+            >
+              <Pencil className="mr-2 h-4 w-4" />
+              Editar
+            </Button>
+          </Link>
           <Button
-            type="button"
             variant="secondary"
-            className="rounded-xl bg-white/5 hover:bg-white/10"
-            onClick={() => alert("Siguiente paso: /matches/[id]/edit")}
+            className="h-9 rounded-lg bg-rose-500/10 hover:bg-rose-500/20 text-rose-200 ring-1 ring-rose-500/25"
+            size="sm"
+            onClick={handleDelete}
+            disabled={deleting}
           >
-            <Pencil className="mr-2 h-4 w-4" />
-            Editar
-          </Button>
-
-          <Button
-            type="button"
-            variant="secondary"
-            className="rounded-xl bg-white/5 hover:bg-white/10"
-            onClick={() => {
-              const ok = window.confirm(
-                "¿Eliminar este match? (No se puede deshacer)"
-              );
-              if (!ok) return;
-              deleteStoredMatch(match.id);
-              router.push("/matches");
-            }}
-          >
-            <Trash2 className="mr-2 h-4 w-4" />
-            Eliminar
+            <Trash2 className="h-4 w-4" />
           </Button>
         </div>
       </div>
 
-      {/* Hero */}
+      {/* Match header */}
       <Card className="relative overflow-hidden rounded-2xl border-white/10 bg-white/5 p-0">
-        {stadiumBg ? (
+        {match.stadium?.imageUrl ? (
           <div
             className="absolute inset-0 bg-cover bg-center opacity-80"
-            style={{ backgroundImage: `url(${stadiumBg})` }}
+            style={{ backgroundImage: `url(${match.stadium.imageUrl})` }}
           />
         ) : null}
+        <div className="absolute inset-0 bg-gradient-to-r from-black/85 via-black/65 to-black/40" />
 
-        <div className="absolute inset-0 bg-linear-to-r from-black/85 via-black/60 to-black/40" />
-        <div className="relative z-10 p-5 md:p-6">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-            {/* Left */}
-            <div className="min-w-0 space-y-3">
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge className="rounded-full bg-emerald-500/15 text-emerald-200 ring-1 ring-emerald-500/25">
-                  <Trophy className="mr-1 h-3.5 w-3.5" />
-                  {getCompetitionLabel(match.competitionId)}
-                </Badge>
-
-                <Badge className="rounded-full bg-white/5 text-zinc-200 ring-1 ring-white/10">
-                  <MapPin className="mr-1 h-3.5 w-3.5" />
-                  {match.stadium} • {match.city}
-                </Badge>
-
-                {hasImages ? (
-                  <Badge className="rounded-full bg-white/5 text-zinc-200 ring-1 ring-white/10">
-                    <ImageIcon className="mr-1 h-3.5 w-3.5" />
-                    {match.images.length}
-                  </Badge>
-                ) : null}
-
-                {hasVideo ? (
-                  <Badge className="rounded-full bg-white/5 text-zinc-200 ring-1 ring-white/10">
-                    <Video className="mr-1 h-3.5 w-3.5" />
-                    Video
-                  </Badge>
-                ) : null}
-              </div>
-
-              <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
-                <div className="text-2xl font-semibold tracking-tight text-zinc-100">
-                  {homeName} <span className="text-zinc-300/70">vs</span>{" "}
-                  {awayName}
-                </div>
-
-                {hasScore ? (
-                  <div className="inline-flex w-fit items-center rounded-2xl border border-emerald-500/25 bg-emerald-500/10 px-3 py-1">
-                    <div className="text-lg font-semibold text-emerald-200">
-                      {match.homeScore}-{match.awayScore}
-                    </div>
-                    <div className="ml-2 text-xs text-emerald-200/70">
-                      Final
-                    </div>
-                  </div>
+        <div className="relative z-10 space-y-6 p-6">
+          {/* Teams */}
+          <div className="flex items-center justify-between gap-4">
+            {/* Home Team */}
+            <div className="flex flex-col items-center gap-3 flex-1">
+              <div className="grid h-16 w-16 place-items-center overflow-hidden rounded-2xl bg-white/5 ring-1 ring-white/10">
+                {match.homeTeam.logoUrl ? (
+                  <Image
+                    src={match.homeTeam.logoUrl}
+                    alt={match.homeTeam.name}
+                    width={48}
+                    height={48}
+                    className="h-12 w-12 object-contain"
+                  />
                 ) : (
-                  <div className="text-sm text-zinc-300/70">Sin marcador</div>
+                  <span className="text-3xl">⚽️</span>
                 )}
               </div>
-
-              <div className="flex flex-wrap items-center gap-4 text-sm text-zinc-200/80">
-                <div className="inline-flex items-center gap-2">
-                  <CalendarDays className="h-4 w-4" />
-                  {formatDate(match.date)}
+              <div className="text-center">
+                <div className="text-sm font-semibold text-zinc-100">
+                  {match.homeTeam.name}
                 </div>
-                <div className="inline-flex items-center gap-2">
-                  <Clock className="h-4 w-4" />
-                  {match.time || "--:--"}
-                </div>
+                <div className="text-xs text-zinc-400">Local</div>
               </div>
             </div>
 
-            {/* Right */}
-            <div className="grid grid-cols-1 gap-2 md:grid-cols-2">
-              <TeamPill teamId={match.homeTeamId} side="home" />
-              <TeamPill teamId={match.awayTeamId} side="away" />
+            {/* Score / vs */}
+            <div className="flex flex-col items-center gap-2">
+              {hasScore ? (
+                <div className="text-4xl font-bold text-zinc-100">
+                  {match.homeScore}
+                  <span className="text-2xl text-zinc-400 mx-1">-</span>
+                  {match.awayScore}
+                </div>
+              ) : (
+                <div className="text-2xl font-semibold text-zinc-400">vs</div>
+              )}
+            </div>
+
+            {/* Away Team */}
+            <div className="flex flex-col items-center gap-3 flex-1">
+              <div className="grid h-16 w-16 place-items-center overflow-hidden rounded-2xl bg-white/5 ring-1 ring-white/10">
+                {match.awayTeam.logoUrl ? (
+                  <Image
+                    src={match.awayTeam.logoUrl}
+                    alt={match.awayTeam.name}
+                    width={48}
+                    height={48}
+                    className="h-12 w-12 object-contain"
+                  />
+                ) : (
+                  <span className="text-3xl">⚽️</span>
+                )}
+              </div>
+              <div className="text-center">
+                <div className="text-sm font-semibold text-zinc-100">
+                  {match.awayTeam.name}
+                </div>
+                <div className="text-xs text-zinc-400">Visita</div>
+              </div>
+            </div>
+          </div>
+
+          {/* Details */}
+          <div className="space-y-2">
+            <Badge className="bg-white/5 text-zinc-200 ring-1 ring-white/10">
+              <Trophy className="mr-1 h-3.5 w-3.5" />
+              {match.competition.name}
+            </Badge>
+
+            <div className="flex flex-wrap items-center gap-3 text-sm text-zinc-200">
+              <span className="inline-flex items-center gap-2">
+                <CalendarDays className="h-4 w-4" />
+                {formatDate(match.date)}
+              </span>
+              {match.time ? (
+                <span className="inline-flex items-center gap-2">
+                  <Clock className="h-4 w-4" />
+                  {match.time}
+                </span>
+              ) : null}
+              {match.stadium ? (
+                <span className="inline-flex items-center gap-2">
+                  <MapPin className="h-4 w-4" />
+                  {match.stadium.name}
+                  {match.city && ` (${match.city})`}
+                </span>
+              ) : null}
             </div>
           </div>
         </div>
       </Card>
 
-      {/* Body grid */}
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-[0.9fr_1.1fr]">
-        {/* Left: info */}
-        <div className="space-y-4">
-          <Card className="rounded-2xl border-white/10 bg-white/5 p-4">
-            <div className="text-sm font-semibold text-zinc-100">
-              Información
-            </div>
-            <Separator className="my-3 bg-white/10" />
-
-            <div className="grid grid-cols-1 gap-3 text-sm md:grid-cols-2">
-              <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                <div className="text-xs text-zinc-400">Competición</div>
-                <div className="mt-1 font-medium text-zinc-100">
-                  {getCompetitionLabel(match.competitionId)}
-                </div>
+      {/* Content Grid */}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        {/* Main Content */}
+        <div className="space-y-4 lg:col-span-2">
+          {/* Notes */}
+          {match.notes ? (
+            <Card className="rounded-2xl border-white/10 bg-white/5 p-4">
+              <div className="text-sm font-semibold text-zinc-200 mb-2">
+                Notas
               </div>
+              <p className="text-sm text-zinc-400">{match.notes}</p>
+            </Card>
+          ) : null}
 
-              <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                <div className="text-xs text-zinc-400">Lugar</div>
-                <div className="mt-1 font-medium text-zinc-100">
-                  {match.stadium}
-                </div>
-                <div className="mt-0.5 text-xs text-zinc-400">{match.city}</div>
+          {/* Video */}
+          {youtubeId ? (
+            <Card className="rounded-2xl border-white/10 bg-white/5 overflow-hidden">
+              <div className="aspect-video">
+                <iframe
+                  width="100%"
+                  height="100%"
+                  src={youtubeId}
+                  title="Match video"
+                  frameBorder="0"
+                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+                  allowFullScreen
+                  className="rounded-2xl"
+                />
               </div>
+            </Card>
+          ) : null}
 
-              <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                <div className="text-xs text-zinc-400">Fecha</div>
-                <div className="mt-1 font-medium text-zinc-100">
-                  {formatDate(match.date)}
-                </div>
+          {/* Images */}
+          {match.images.length > 0 ? (
+            <Card className="rounded-2xl border-white/10 bg-white/5 p-4">
+              <div className="text-sm font-semibold text-zinc-200 mb-3 flex items-center gap-2">
+                <ImageIcon className="h-4 w-4" />
+                Imágenes ({match.images.length})
               </div>
-
-              <div className="rounded-2xl border border-white/10 bg-black/20 p-3">
-                <div className="text-xs text-zinc-400">Hora</div>
-                <div className="mt-1 font-medium text-zinc-100">
-                  {match.time || "--:--"}
-                </div>
+              <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+                {match.images.map((img) => (
+                  <a
+                    key={img.id}
+                    href={img.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="relative aspect-video overflow-hidden rounded-xl ring-1 ring-white/10 hover:ring-emerald-500/50 transition"
+                  >
+                    <Image
+                      src={img.url}
+                      alt="Match image"
+                      fill
+                      className="object-cover"
+                    />
+                  </a>
+                ))}
               </div>
-
-              <div className="rounded-2xl border border-white/10 bg-black/20 p-3 md:col-span-2">
-                <div className="text-xs text-zinc-400">Costo</div>
-                <div className="mt-1 font-medium text-zinc-100">
-                  {match.costAmount !== null
-                    ? `${match.costAmount} ${match.costCurrency}`
-                    : "—"}
-                </div>
-              </div>
-            </div>
-          </Card>
-
-          <Card className="rounded-2xl border-white/10 bg-white/5 p-4">
-            <div className="text-sm font-semibold text-zinc-100">Notas</div>
-            <Separator className="my-3 bg-white/10" />
-            {match.notes ? (
-              <div className="whitespace-pre-wrap text-sm text-zinc-200/90">
-                {match.notes}
-              </div>
-            ) : (
-              <div className="text-sm text-zinc-400">Sin notas.</div>
-            )}
-          </Card>
+            </Card>
+          ) : null}
         </div>
 
-        {/* Right: media */}
+        {/* Sidebar */}
         <div className="space-y-4">
-          <Card className="rounded-2xl border-white/10 bg-white/5 p-4">
-            <div className="flex items-center justify-between">
-              <div className="text-sm font-semibold text-zinc-100">
-                Multimedia
+          {/* Cost */}
+          {match.costAmount ? (
+            <Card className="rounded-2xl border-white/10 bg-white/5 p-4">
+              <div className="text-xs font-semibold text-zinc-400 uppercase mb-2">
+                Costo
               </div>
+              <div className="text-2xl font-bold text-zinc-100">
+                {match.costAmount}
+                <span className="text-sm text-zinc-400 ml-1">
+                  {match.costCurrency}
+                </span>
+              </div>
+            </Card>
+          ) : null}
 
-              {match.videoUrl ? (
-                <Button
-                  asChild
-                  variant="secondary"
-                  className="rounded-xl bg-white/5 hover:bg-white/10"
-                >
-                  <a href={match.videoUrl} target="_blank" rel="noreferrer">
-                    <ExternalLink className="mr-2 h-4 w-4" />
-                    Abrir link
-                  </a>
-                </Button>
-              ) : null}
+          {/* Info */}
+          <Card className="rounded-2xl border-white/10 bg-white/5 p-4 space-y-3">
+            <div>
+              <div className="text-xs font-semibold text-zinc-400 uppercase">
+                ID Partido
+              </div>
+              <div className="text-xs font-mono text-zinc-300 mt-1">
+                {match.id}
+              </div>
             </div>
-
-            <Separator className="my-3 bg-white/10" />
-
-            {/* Video */}
-            {match.videoUrl ? (
-              <div className="space-y-2">
-                <div className="text-xs text-zinc-400">Video</div>
-
-                {ytEmbed ? (
-                  <div className="overflow-hidden rounded-2xl border border-white/10 bg-black/40">
-                    <div className="relative aspect-video w-full">
-                      <iframe
-                        className="absolute inset-0 h-full w-full"
-                        src={ytEmbed}
-                        title="Videos =(frameborder=0)" // <-- intentionally not used
-                        allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                        allowFullScreen
-                      />
-                    </div>
-                  </div>
-                ) : (
-                  <div className="rounded-2xl border border-white/10 bg-black/20 p-3 text-sm text-zinc-300">
-                    No es YouTube (aún). Por ahora solo abrimos el link:
-                    <div className="mt-1 break-all text-xs text-zinc-400">
-                      {match.videoUrl}
-                    </div>
-                  </div>
-                )}
+            <Separator className="bg-white/10" />
+            <div>
+              <div className="text-xs font-semibold text-zinc-400 uppercase">
+                Creado
               </div>
-            ) : (
-              <div className="rounded-2xl border border-white/10 bg-black/20 p-3 text-sm text-zinc-400">
-                Sin video.
+              <div className="text-xs text-zinc-300 mt-1">
+                {new Date(match.createdAt).toLocaleDateString("es-MX")}
               </div>
-            )}
-
-            {/* Images */}
-            <div className="mt-4 space-y-2">
-              <div className="text-xs text-zinc-400">Imágenes</div>
-
-              {!hasImages ? (
-                <div className="rounded-2xl border border-white/10 bg-black/20 p-3 text-sm text-zinc-400">
-                  Sin imágenes.
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-                  {match.images.map((src, idx) => (
-                    <a
-                      key={`${match.id}-img-${idx}`}
-                      href={src}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="group relative overflow-hidden rounded-2xl border border-white/10 bg-black/30"
-                      title="Abrir imagen"
-                    >
-                      {/* Usamos next/image para optimizar el rendimiento de LCP */}
-                      <Image
-                        src={src}
-                        alt={`match image ${idx + 1}`}
-                        width={400}
-                        height={160}
-                        className="h-40 w-full object-cover transition duration-300 group-hover:scale-105"
-                      />
-                      <div className="absolute inset-0 bg-linear-to-t from-black/70 via-black/10 to-transparent opacity-90" />
-                      <div className="absolute bottom-2 left-2 right-2 flex items-center justify-between text-xs text-zinc-200">
-                        <span className="rounded-full bg-white/10 px-2 py-0.5 ring-1 ring-white/10">
-                          #{idx + 1}
-                        </span>
-                        <span className="text-zinc-300/80">
-                          click para abrir
-                        </span>
-                      </div>
-                    </a>
-                  ))}
-                </div>
-              )}
             </div>
           </Card>
         </div>

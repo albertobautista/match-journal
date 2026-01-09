@@ -42,7 +42,10 @@ export const STADIUMS_CATALOG: StadiumCatalogItem[] = [
   //   },
 ];
 
-export function getStadiumImageSrc(stadiumName: string): string | null {
+export function getStadiumImageSrc(
+  stadium: string | { name: string }
+): string | null {
+  const stadiumName = typeof stadium === "string" ? stadium : stadium.name;
   const key = stadiumName.trim().toLowerCase();
   const found = STADIUMS_CATALOG.find(
     (s) => s.name.trim().toLowerCase() === key

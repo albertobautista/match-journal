@@ -1,0 +1,115 @@
+datasource db {
+  provider = "sqlite"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+/**
+ * =========================
+ * CATÁLOGOS
+ * =========================
+ */
+
+model Team {
+  id      String  @id
+  name    String
+  logoUrl String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  homeMatches Match[] @relation("HomeTeam")
+  awayMatches Match[] @relation("AwayTeam")
+}
+
+model Competition {
+  id      String  @id
+  name    String
+  country String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  matches Match[]
+}
+
+model Stadium {
+  id       String  @id
+  name     String
+  city     String?
+  country  String?
+  imageUrl String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  matches Match[]
+}
+
+/**
+ * =========================
+ * MATCHES
+ * =========================
+ */
+
+model Match {
+  id String @id @default(cuid())
+
+  // Fecha y contexto
+  date  DateTime
+  time  String?
+  city  String?
+  notes String?
+
+  // Relaciones (catálogos)
+  homeTeamId    String
+  awayTeamId    String
+  competitionId String
+  stadiumId     String
+
+  homeTeam    Team        @relation("HomeTeam", fields: [homeTeamId], references: [id])
+  awayTeam    Team        @relation("AwayTeam", fields: [awayTeamId], references: [id])
+  competition Competition @relation(fields: [competitionId], references: [id])
+  stadium     Stadium     @relation(fields: [stadiumId], references: [id])
+
+  // Marcador (opcional)
+  homeScore Int?
+  awayScore Int?
+
+  // Media
+  videoUrl String?
+  images   MatchImage[]
+
+  // Costos
+  costAmount   Float?
+  costCurrency String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([date])
+  @@index([competitionId])
+  @@index([stadiumId])
+  @@index([homeTeamId])
+  @@index([awayTeamId])
+}
+
+/**
+ * =========================
+ * IMÁGENES
+ * =========================
+ */
+
+model MatchImage {
+  id      String @id @default(cuid())
+  matchId String
+  url     String
+
+  createdAt DateTime @default(now())
+
+  match Match @relation(fields: [matchId], references: [id], onDelete: Cascade)
+
+  @@index([matchId])
+}

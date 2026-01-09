@@ -16,7 +16,17 @@ export type StoredMatch = {
   date: string; // YYYY-MM-DD
   time: string; // HH:mm
 
-  stadium: string;
+  stadium:
+    | string
+    | {
+        id: string;
+        name: string;
+        city?: string;
+        country?: string;
+        imageUrl?: string | null;
+        createdAt?: string;
+        updatedAt?: string;
+      };
   city: string;
 
   homeScore: number | null;

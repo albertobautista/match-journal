@@ -21,9 +21,9 @@ import {
   Percent,
 } from "lucide-react";
 
-import { getStoredMatches, type StoredMatch } from "@/lib/matches-storage";
+import type { StoredMatch } from "@/lib/matches-storage";
 import { getCompetitionLabel } from "@/lib/competitions";
-import { getTeamName, getTeamLogoUrlById } from "@/lib/teams";
+import type { TeamOption } from "@/lib/teams";
 import { getAppSettings } from "@/lib/app-settings";
 
 type MoneyCurrency = "MXN" | "USD" | "EUR";
@@ -91,15 +91,37 @@ function StatCard({ title, value, subtitle, icon }: StatCardProps) {
 
 export default function StatsPage() {
   const [items, setItems] = React.useState<StoredMatch[]>([]);
+  const [teams, setTeams] = React.useState<TeamOption[]>([]);
   const [favoriteTeamId, setFavoriteTeamId] = React.useState<string | null>(
     null
   );
   const nowYear = String(new Date().getFullYear());
 
   React.useEffect(() => {
-    setItems(getStoredMatches());
-    const settings = getAppSettings();
-    setFavoriteTeamId(settings.favoriteTeamId);
+    const loadData = async () => {
+      const settings = getAppSettings();
+      setFavoriteTeamId(settings.favoriteTeamId);
+
+      try {
+        const [matchesRes, teamsRes] = await Promise.all([
+          fetch("/api/matches", { cache: "no-store" }),
+          fetch("/api/teams", { cache: "no-store" }),
+        ]);
+
+        if (matchesRes.ok) {
+          const matchesData = await matchesRes.json();
+          setItems(matchesData);
+        }
+
+        if (teamsRes.ok) {
+          const teamsData = await teamsRes.json();
+          setTeams(teamsData);
+        }
+      } catch (error) {
+        console.error("Error fetching data:", error);
+      }
+    };
+    loadData();
   }, []);
 
   // Filter only matches with score
@@ -178,7 +200,11 @@ export default function StatsPage() {
 
   const topStadiums = React.useMemo(() => {
     const map = groupCount(
-      favoriteTeamMatches.map((m) => m.stadium).filter(Boolean)
+      favoriteTeamMatches
+        .map((m) =>
+          typeof m.stadium === "string" ? m.stadium : m.stadium.name
+        )
+        .filter(Boolean)
     );
     return topNFromMap(map, 5);
   }, [favoriteTeamMatches]);
@@ -194,9 +220,10 @@ export default function StatsPage() {
         <div className="text-2xl font-semibold">Estadísticas</div>
         <div className="mt-1 text-sm text-zinc-400">
           {favoriteTeamId
-            ? `${getTeamName(
+            ? `${
+                teams.find((t) => t.id === favoriteTeamId)?.name ??
                 favoriteTeamId
-              )} • Solo partidos con marcador registrado`
+              } • Solo partidos con marcador registrado`
             : "Selecciona un equipo favorito en el dashboard para ver estadísticas"}
         </div>
       </div>
@@ -365,10 +392,13 @@ export default function StatsPage() {
                     >
                       <div className="flex min-w-0 items-center gap-3">
                         <div className="grid h-9 w-9 place-items-center overflow-hidden rounded-xl bg-white/5 ring-1 ring-white/10">
-                          {getTeamLogoUrlById(teamId) ? (
+                          {teams.find((t) => t.id === teamId)?.logoUrl ? (
                             <Image
-                              src={getTeamLogoUrlById(teamId)!}
-                              alt={getTeamName(teamId)}
+                              src={teams.find((t) => t.id === teamId)?.logoUrl!}
+                              alt={
+                                teams.find((t) => t.id === teamId)?.name ??
+                                teamId
+                              }
                               width={22}
                               height={22}
                               className="h-5 w-5 object-contain"
@@ -379,7 +409,7 @@ export default function StatsPage() {
                         </div>
                         <div className="min-w-0">
                           <div className="truncate text-sm font-medium text-zinc-200">
-                            {getTeamName(teamId)}
+                            {teams.find((t) => t.id === teamId)?.name ?? teamId}
                           </div>
                           <div className="truncate text-xs text-zinc-500">
                             {teamId}
@@ -477,8 +507,12 @@ export default function StatsPage() {
                   )
                   .slice(0, 10)
                   .map((m) => {
-                    const home = getTeamName(m.homeTeamId);
-                    const away = getTeamName(m.awayTeamId);
+                    const home =
+                      teams.find((t) => t.id === m.homeTeamId)?.name ??
+                      m.homeTeamId;
+                    const away =
+                      teams.find((t) => t.id === m.awayTeamId)?.name ??
+                      m.awayTeamId;
 
                     return (
                       <Link
@@ -497,7 +531,9 @@ export default function StatsPage() {
                             </div>
                             <div className="truncate text-xs text-zinc-500">
                               {getCompetitionLabel(m.competitionId)} •{" "}
-                              {m.stadium}
+                              {typeof m.stadium === "string"
+                                ? m.stadium
+                                : m.stadium.name}
                             </div>
                           </div>
                         </div>
