@@ -137,6 +137,52 @@ function diffText(date: string, time?: string) {
   return `En ${days} días`;
 }
 
+// Función para obtener el tiempo restante con cuenta atrás (para hoy)
+function getTimeRemainingForMatch(
+  date: string,
+  time: string | null
+): string | null {
+  const dateOnly = date.includes("T") ? date.split("T")[0] : date;
+  const [y, m, d] = dateOnly.split("-").map((x) => Number(x));
+
+  const matchDate = new Date(y, m - 1, d);
+  if (time) {
+    const [hours, minutes] = time.split(":").map((x) => Number(x));
+    matchDate.setHours(hours || 0, minutes || 0, 0, 0);
+  } else {
+    matchDate.setHours(23, 59, 59, 0);
+  }
+
+  const now = new Date();
+  const nowMidnight = new Date(now);
+  nowMidnight.setHours(0, 0, 0, 0);
+
+  const daysRemaining = Math.floor(
+    (matchDate.getTime() - nowMidnight.getTime()) / (1000 * 60 * 60 * 24)
+  );
+
+  if (daysRemaining < 0) {
+    return null;
+  } else if (daysRemaining === 0) {
+    // Es hoy - mostrar cuenta atrás
+    const diff = matchDate.getTime() - now.getTime();
+    if (diff <= 0) {
+      return null; // El partido ya pasó
+    }
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    if (hours > 0) {
+      return `En ${hours}h ${minutes}m`;
+    } else {
+      return `En ${minutes}m`;
+    }
+  } else if (daysRemaining === 1) {
+    return "Mañana";
+  } else {
+    return `En ${daysRemaining} días`;
+  }
+}
+
 function groupCount<T extends string>(arr: T[]) {
   const map = new Map<T, number>();
   for (const k of arr) map.set(k, (map.get(k) ?? 0) + 1);
@@ -190,11 +236,34 @@ function TeamAvatar({
 }
 
 function NextMatchCard({ m, teams }: { m: StoredMatch; teams: TeamOption[] }) {
+  const [timeRemaining, setTimeRemaining] = React.useState<string | null>(
+    getTimeRemainingForMatch(m.date, m.time)
+  );
+
+  // Actualizar la cuenta atrás cada minuto si es hoy
+  React.useEffect(() => {
+    const updateTime = () => {
+      const remaining = getTimeRemainingForMatch(m.date, m.time);
+      setTimeRemaining(remaining);
+    };
+
+    // Actualizar inmediatamente
+    updateTime();
+
+    // Configurar intervalo para actualizar cada minuto
+    const interval = setInterval(updateTime, 60000); // 60 segundos
+
+    return () => clearInterval(interval);
+  }, [m.date, m.time]);
+
   const homeName =
     teams.find((t) => t.id === m.homeTeamId)?.name ?? m.homeTeamId;
   const awayName =
     teams.find((t) => t.id === m.awayTeamId)?.name ?? m.awayTeamId;
   const bg = getStadiumImageSrc(m.stadium);
+
+  // Mostrar tiempo restante si existe, si no mostrar el diffText normal
+  const displayTime = timeRemaining ?? diffText(m.date, m.time);
 
   return (
     <Card className="relative overflow-hidden rounded-2xl border-emerald-500/20 bg-white/5 p-0 ring-1 ring-emerald-500/15">
@@ -242,7 +311,7 @@ function NextMatchCard({ m, teams }: { m: StoredMatch; teams: TeamOption[] }) {
                     {m.time || "--:--"}
                   </span>
                   <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-xs text-emerald-200 ring-1 ring-emerald-500/20">
-                    {diffText(m.date, m.time)}
+                    {displayTime}
                   </span>
                 </div>
               </div>

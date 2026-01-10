@@ -112,27 +112,62 @@ function formatDateTime(dateStr: string, time?: string | null) {
   return formattedDate;
 }
 
-function getTimeRemaining(dateStr: string): string | null {
+function getTimeRemaining(
+  dateStr: string,
+  timeStr: string | null
+): string | null {
   const dateOnly = dateStr.includes("T") ? dateStr.split("T")[0] : dateStr;
   const [y, m, d] = dateOnly.split("-").map((x) => Number(x));
 
   const matchDate = new Date(y, m - 1, d);
+  if (timeStr) {
+    const [hours, minutes] = timeStr.split(":").map((x) => Number(x));
+    matchDate.setHours(hours || 0, minutes || 0, 0, 0);
+  } else {
+    matchDate.setHours(23, 59, 59, 0);
+  }
+
   const now = new Date();
-  now.setHours(0, 0, 0, 0);
+  const nowMidnight = new Date(now);
+  nowMidnight.setHours(0, 0, 0, 0);
 
   const daysRemaining = Math.floor(
-    (matchDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
+    (matchDate.getTime() - nowMidnight.getTime()) / (1000 * 60 * 60 * 24)
   );
 
   if (daysRemaining < 0) {
     return null; // Para partidos jugados, no mostrar nada
   } else if (daysRemaining === 0) {
-    return "Hoy";
+    // Es hoy - mostrar cuenta atrás
+    const diff = matchDate.getTime() - now.getTime();
+    if (diff <= 0) {
+      return null; // El partido ya pasó
+    }
+    const hours = Math.floor(diff / (1000 * 60 * 60));
+    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+    if (hours > 0) {
+      return `En ${hours}h ${minutes}m`;
+    } else {
+      return `En ${minutes}m`;
+    }
   } else if (daysRemaining === 1) {
     return "Mañana";
   } else {
     return `En ${daysRemaining} días`;
   }
+}
+
+// Función para obtener el timestamp del partido incluyendo la hora
+function getMatchDateTime(dateStr: string, timeStr: string | null): Date {
+  const dateOnly = dateStr.includes("T") ? dateStr.split("T")[0] : dateStr;
+  const [y, m, d] = dateOnly.split("-").map((x) => Number(x));
+
+  if (timeStr) {
+    const [hours, minutes] = timeStr.split(":").map((x) => Number(x));
+    return new Date(y, m - 1, d, hours || 0, minutes || 0);
+  }
+  // Si no hay hora, asumir 23:59:59 del mismo día
+  return new Date(y, m - 1, d, 23, 59, 59);
 }
 
 function MatchCard({
@@ -143,7 +178,26 @@ function MatchCard({
   onDelete: (id: string) => Promise<void>;
 }) {
   const [deleting, setDeleting] = React.useState(false);
+  const [timeRemaining, setTimeRemaining] = React.useState<string | null>(
+    getTimeRemaining(match.date, match.time)
+  );
   const hasScore = match.homeScore !== null && match.awayScore !== null;
+
+  // Actualizar la cuenta atrás cada minuto si es hoy
+  React.useEffect(() => {
+    const updateTime = () => {
+      const remaining = getTimeRemaining(match.date, match.time);
+      setTimeRemaining(remaining);
+    };
+
+    // Actualizar inmediatamente
+    updateTime();
+
+    // Configurar intervalo para actualizar cada minuto
+    const interval = setInterval(updateTime, 60000); // 60 segundos
+
+    return () => clearInterval(interval);
+  }, [match.date, match.time]);
 
   const handleDelete = async () => {
     if (!confirm("¿Eliminar este partido?")) return;
@@ -239,11 +293,11 @@ function MatchCard({
         </div>
 
         {/* Time Remaining Badge */}
-        {getTimeRemaining(match.date) && (
+        {timeRemaining && (
           <div className="flex items-center justify-center">
             <Badge className="rounded-full bg-amber-500/15 text-amber-200 ring-1 ring-amber-500/25 text-xs">
               <Clock className="mr-1 h-3 w-3" />
-              {getTimeRemaining(match.date)}
+              {timeRemaining}
             </Badge>
           </div>
         )}
@@ -336,10 +390,14 @@ export default function MatchesPage() {
   // Separate upcoming and played, then sort
   const now = new Date();
   const upcoming = matches
-    .filter((m) => new Date(m.date) >= now)
-    .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()); // Próximos: fecha más próxima primero
+    .filter((m) => getMatchDateTime(m.date, m.time) >= now)
+    .sort(
+      (a, b) =>
+        getMatchDateTime(a.date, a.time).getTime() -
+        getMatchDateTime(b.date, b.time).getTime()
+    ); // Próximos: fecha más próxima primero
   const played = matches
-    .filter((m) => new Date(m.date) < now)
+    .filter((m) => getMatchDateTime(m.date, m.time) < now)
     .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()); // Jugados: más recientes primero
 
   return (
