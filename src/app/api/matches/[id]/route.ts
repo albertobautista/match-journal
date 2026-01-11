@@ -69,8 +69,14 @@ export async function PUT(
         stadiumId,
         city: city || null,
         notes: notes || null,
-        homeScore: homeScore ? parseInt(homeScore) : null,
-        awayScore: awayScore ? parseInt(awayScore) : null,
+        homeScore:
+          homeScore !== null && homeScore !== undefined
+            ? parseInt(homeScore)
+            : null,
+        awayScore:
+          awayScore !== null && awayScore !== undefined
+            ? parseInt(awayScore)
+            : null,
         videoUrl: videoUrl || null,
         costAmount: costAmount ? parseFloat(costAmount) : null,
         costCurrency: costCurrency || null,
